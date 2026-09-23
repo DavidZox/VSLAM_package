@@ -183,13 +183,44 @@ git submodule 引用(`.gitmodules` 記錄版本指標,只占幾 KB),而不是整
 四個 submodule 的 `.gitmodules` URL 指向的是**自己帳號底下 fork 的版本**(`DavidZox/g2o`、
 `DavidZox/stella_vslam` 等),不是直接指向 `stella-cv`/`RainerKuemmerle` 原始 repo——避免上游哪天改版本、
 砍分支甚至整個 repo 消失,導致這裡的 submodule 指標抓不到對應 commit。每個 submodule 資料夾裡另外設了
-`upstream` remote 指回原始 repo,之後要同步上游更新可以在該資料夾內:
+`upstream` remote 指回原始 repo。
+
+### 修改 submodule 裡面的內容時,一定要「兩層都 push」
+
+`stella_vslam`/`g2o`/`stella_vslam_examples`/`stella_vslam_ros` 每個資料夾裡都是獨立的 git repo,
+`VSLAM_package` 只在自己的歷史裡記一個「這個資料夾現在對應到 submodule 的哪個 commit」的指標,不會記錄
+裡面實際改了哪些檔案。所以只要改動到 submodule 裡面的檔案(例如以後改 `stella_vslam_ros` 接自己的
+ROS2 系統、或是同步上游更新),流程一定分兩層,**順序不能顛倒**:
 
 ```bash
+# 第 1 層：在 submodule 自己的資料夾裡先 commit + push
+cd stella_vslam_ros
+git add -A && git commit -m "..."
+git push origin main          # 推到自己的 fork,例如 DavidZox/stella_vslam_ros
+
+# 第 2 層：確定第 1 層真的推上去之後，回到 VSLAM_package 根目錄
+cd ..
+git add stella_vslam_ros      # 只是把指標更新到剛剛那個新 commit，不是加檔案內容
+git commit -m "Bump stella_vslam_ros submodule pin"
+git push origin main
+```
+
+**為什麼順序不能反過來**:主 repo 記的指標只是一串 commit hash,git 不會檢查這串 hash 是否真的能在
+遠端抓到才讓你 commit/push。如果先推了 `VSLAM_package`,指標會指向一個還只存在本機、沒推上 fork 的
+commit,等於開了一張空頭支票——之後任何人(包含你自己在別台機器)`git clone --recurse-submodules`
+時,git 會照指標去 fork 抓那個 commit,結果抓不到,直接失敗。所以永遠是「先確定 submodule 那層真的
+推上去了,再回頭更新主 repo 的指標」。
+
+這套流程**只有在真的動到 submodule 裡面的檔案時才需要**;平常只改 `VSLAM_package` 自己的檔案
+(`README.md`、`build.sh`、`env.sh`)是單純一般的 commit + push,不會牽扯到這兩層。
+
+同步上游更新是這套流程的一種情況,差別只在 submodule 那層的來源改成 `upstream`:
+
+```bash
+cd stella_vslam_ros
 git fetch upstream
 git merge upstream/main   # 或 upstream 的預設分支名稱(例如 stella_vslam_ros 是 upstream/ros2)
 git push origin main      # 推回自己的 fork
+cd ..
+git add stella_vslam_ros && git commit -m "Sync stella_vslam_ros with upstream" && git push origin main
 ```
-
-跟完上游後,記得回到 `VSLAM_package` 根目錄 `git add <submodule路徑> && git commit`,把新的 commit 指標更新進
-`.gitmodules` 所在的 gitlink。
