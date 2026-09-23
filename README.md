@@ -179,3 +179,17 @@ git submodule 引用(`.gitmodules` 記錄版本指標,只占幾 KB),而不是整
 不小心把建置產物、下載的詞彙檔、submodule 內容整包 commit 進去,單一 push 膨脹到 100MB+,在較慢的
 連線環境下會 push 逾時失敗;改成 submodule 後 `.git` 大小回到幾百 KB。`build.sh` 是重建
 `local_install/`/`vocab/` 的唯一依據,這兩個目錄永遠不該手動加入版控。
+
+四個 submodule 的 `.gitmodules` URL 指向的是**自己帳號底下 fork 的版本**(`DavidZox/g2o`、
+`DavidZox/stella_vslam` 等),不是直接指向 `stella-cv`/`RainerKuemmerle` 原始 repo——避免上游哪天改版本、
+砍分支甚至整個 repo 消失,導致這裡的 submodule 指標抓不到對應 commit。每個 submodule 資料夾裡另外設了
+`upstream` remote 指回原始 repo,之後要同步上游更新可以在該資料夾內:
+
+```bash
+git fetch upstream
+git merge upstream/main   # 或 upstream 的預設分支名稱(例如 stella_vslam_ros 是 upstream/ros2)
+git push origin main      # 推回自己的 fork
+```
+
+跟完上游後,記得回到 `VSLAM_package` 根目錄 `git add <submodule路徑> && git commit`,把新的 commit 指標更新進
+`.gitmodules` 所在的 gitlink。
