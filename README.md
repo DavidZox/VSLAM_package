@@ -11,9 +11,14 @@
 - [x] 本地端核心算法建置環境(`g2o` → `stella_vslam` → `stella_vslam_examples`)已建好、`run_video_slam`
       驗證能正常啟動並正確連結所有函式庫
 - [x] 四個上游依賴改用 **git submodule** 釘版本管理(見下方「版控說明」),`build.sh` 記錄完整建置步驟
-- [ ] **還沒拿真實影片跑過完整的 SLAM 流程**(目前只驗證了「程式能跑」,還沒驗證追蹤/建圖品質)
-- [ ] 還沒裝任何 3D 視覺化介面(Pangolin/SocketViewer 等),目前是純文字輸出的 headless 模式
+- [x] **拿公開資料集(TUM RGBD)驗證過完整 SLAM 流程,包含追蹤精度**(見下方「測試紀錄」),不只是「程式能跑」
+- [ ] 還沒拿自己的相機/影片實測(目前只用公開資料集驗證過)
+- [x] **PangolinViewer 裝好了**(見「視覺化介面」章節),可以即時看特徵點 + 3D 地圖建構過程——但只在
+      建置那台機器驗證過編譯/運算正常,視窗畫面實際算繪需要在有 GPU 存取權限的終端機自行確認
+- [x] **整條 pipeline ~105 個可調參數整理好了**(見 `docs/tunable_parameters.md`),含官方範例本身的
+      bug 跟寫死常數清單,可以系統性地一個一個試
 - [ ] `stella_vslam_ros`(ROS2 部署層)只做了介接資訊調查,還沒開始建置——待本地端核心算法驗證過再推進
+- [ ] ZED 雙目相機規格只先做了設定範本跟接入方式調查(見 `docs/zed_stereo.md`),還沒有實體相機可以測
 
 ## 資料夾結構
 
@@ -24,6 +29,11 @@ VSLAM_package/
 ├── env.sh                執行前 source,設定 LD_LIBRARY_PATH 等環境變數
 ├── .gitmodules            四個上游 repo 的 submodule 註冊資訊
 ├── .gitignore
+├── configs/               自己專案的相機設定檔(跟 stella_vslam/example/ 的官方範例分開放)
+│   └── ZED_stereo.yaml    ZED 雙目相機設定範本,細節見 docs/zed_stereo.md
+├── docs/
+│   ├── zed_stereo.md          ZED 雙目相機校正參數 + 接入方式筆記
+│   └── tunable_parameters.md  整條 pipeline ~105 個可調參數對照表
 │
 ├── g2o/                  【submodule】RainerKuemmerle/g2o,stella_vslam 的圖優化後端依賴
 ├── stella_vslam/          【submodule】核心 VSLAM 演算法庫
@@ -31,10 +41,11 @@ VSLAM_package/
 ├── stella_vslam_ros/       【submodule】ROS2 部署層,尚未建置
 │
 ├── local_install/        （不進版控）g2o + stella_vslam 的 from-source 安裝結果,by build.sh 產生
-└── vocab/                （不進版控）ORB 詞彙檔 orb_vocab.fbow,by build.sh 下載
+├── vocab/                （不進版控）ORB 詞彙檔 orb_vocab.fbow,by build.sh 下載
+└── datasets/             （不進版控）測試用資料集,見下方「測試紀錄」
 ```
 
-`local_install/`、`vocab/`、各 submodule 底下自己的 `build/` 都是建置產物或第三方內容,不進版控,重新
+`local_install/`、`vocab/`、`datasets/`、各 submodule 底下自己的 `build/` 都是建置產物、下載資產或第三方內容,不進版控,重新
 跑 `build.sh` 就能重建(細節見文末「版控說明」)。
 
 ## 使用方式:本地端核心算法測試
@@ -126,15 +137,109 @@ source env.sh
 `run_kitti_slam`/`run_euroc_slam`/`run_tum_rgbd_slam`(標準資料集,用法可以參考 `stella_vslam/example/`
 底下對應的 YAML)。
 
-### 之後想加視覺化介面
+### 視覺化介面:PangolinViewer
 
-目前 `--viewer` 只能傳 `none`。要加即時 3D 畫面,兩個選項(擇一,裝好後重新 `./build.sh` 會自動偵測到並連結):
+已經裝好([stella_vslam 官方文件](https://stella-cv.readthedocs.io/en/latest/installation.html) 的
+Viewer 章節那個版本),`--viewer` 可以傳 `pangolin_viewer` 了,會開一個視窗同時顯示「當下影格疊 ORB
+特徵點」跟「3D 地圖/相機軌跡即時建構過程」:
 
-- **PangolinViewer**——傳統桌面 OpenGL 視窗;WSL2 環境需要 WSLg 圖形轉發才看得到畫面。
-- **SocketViewer**——用瀏覽器看(Node.js 架一個本地網頁伺服器),比較不挑執行環境。
+```bash
+source env.sh
+"${VSLAM_ROOT}/stella_vslam_examples/build/run_tum_rgbd_slam" \
+  -v "$VOCAB_FILE" \
+  -d datasets/rgbd_dataset_freiburg1_xyz \
+  -c stella_vslam/example/tum_rgbd/TUM_RGBD_mono_1.yaml \
+  --no-sleep --viewer pangolin_viewer
+```
 
-裝法見 [stella_vslam 官方文件](https://stella-cv.readthedocs.io/en/latest/installation.html) 的
-Viewer 章節,兩者都不需要動 `build.sh` 的核心邏輯。
+安裝方式(供其他機器重建參考,`build.sh` 目前還沒自動包含這段,是額外手動裝的):
+
+```bash
+sudo apt install -y libgl1-mesa-dev libwayland-dev libxkbcommon-dev wayland-protocols \
+  libegl1-mesa-dev libc++-dev libepoxy-dev libglew-dev
+git clone https://github.com/stevenlovegrove/Pangolin.git
+cmake -S Pangolin -B Pangolin/build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$VSLAM_ROOT/local_install" -DCMAKE_PREFIX_PATH="$VSLAM_ROOT/local_install" \
+  -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_TOOLS=OFF
+cmake --build Pangolin/build -j"$(nproc)" && cmake --install Pangolin/build
+
+git clone --recursive https://github.com/stella-cv/pangolin_viewer.git
+cmake -S pangolin_viewer -B pangolin_viewer/build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$VSLAM_ROOT/local_install" -DCMAKE_PREFIX_PATH="$VSLAM_ROOT/local_install" \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build pangolin_viewer/build -j"$(nproc)" && cmake --install pangolin_viewer/build
+
+# 讓已經 build 好的 stella_vslam_examples 重新偵測、連結 pangolin_viewer：
+cmake -S stella_vslam_examples -B stella_vslam_examples/build -DCMAKE_PREFIX_PATH="$VSLAM_ROOT/local_install"
+cmake --build stella_vslam_examples/build -j"$(nproc)"
+```
+
+⚠️ 這幾支 build 指令我這邊(工具執行環境)沒有 GPU 裝置(`/dev/dri` 不存在),雖然編譯跟 SLAM 運算都
+正常跑完,但沒辦法確認視窗畫面實際算繪是否正常——**這個指令要在你自己有 WSLg/GPU 存取權限的終端機
+執行才能真的看到畫面**,不要透過自動化工具跑。如果你那邊也遇到 `MESA`/`ZINK`/`dri2` 相關錯誤,是
+WSLg GPU 驅動設定問題,可以考慮改裝不需要 OpenGL 的 SocketViewer(瀏覽器看)當替代方案。
+
+### 系統性調參數:`docs/tunable_parameters.md`
+
+整條 pipeline(前端特徵擷取、初始化、追蹤、建圖/local BA、迴環偵測、global BA/pose graph、System)
+所有能調的 YAML 參數,包含官方範例都沒列出來、要查原始碼才知道存在的隱藏參數,總共約 105 個,整理在
+[`docs/tunable_parameters.md`](docs/tunable_parameters.md)。裡面還記錄了一個 stella_vslam 官方範例本身
+的 bug(`num_grid_cols`/`num_grid_rows` 設在錯的 YAML 區塊,一直沒生效過)跟一份完全寫死、無法透過設定
+檔調整的常數清單。文件最後也有「怎麼有系統地做參數實驗」的建議流程(改一個參數 → 用 `evo_ape` 量化
+比較 → 換下一個),搭配上面「測試紀錄」章節已經裝好的 `evo`。
+
+## 測試紀錄
+
+### TUM RGBD `freiburg1_xyz`(單目,含 ground truth 精度驗證)
+
+EuRoC 官方資料集主機(`robotics.ethz.ch`)目前連不上,改用 [TUM RGBD](https://cvg.cit.tum.de/data/datasets/rgbd-dataset)
+的 `freiburg1_xyz` 序列(手持相機沿 X/Y/Z 軸平移,796 幀,自帶 motion-capture ground truth)驗證整條
+pipeline:
+
+```bash
+source env.sh
+"${VSLAM_ROOT}/stella_vslam_examples/build/run_tum_rgbd_slam" \
+  -v "$VOCAB_FILE" \
+  -d /path/to/rgbd_dataset_freiburg1_xyz \
+  -c "${VSLAM_ROOT}/stella_vslam/example/tum_rgbd/TUM_RGBD_mono_1.yaml" \
+  --no-sleep --auto-term \
+  --eval-log-dir /path/to/output目錄 \
+  --viewer none
+```
+
+**結果**:單目初始化成功、796 幀全部處理完、產生 19 個關鍵幀;平均每幀追蹤耗時 ~10ms(遠低於這份
+資料集 30fps 的 33ms 預算,代表這台機器的算力對即時處理綽綽有餘)。拿
+[`evo`](https://github.com/MichaelGrupp/evo)(`pip install evo`)對照官方 ground truth 算絕對軌跡誤差
+(APE,SE(3) Umeyama 對齊,單位公尺):
+
+| max | mean | median | min | rmse | std |
+|---|---|---|---|---|---|
+| 0.127 | 0.053 | 0.049 | 0.001 | 0.060 | 0.028 |
+
+RMSE 約 6 公分,對一段沒有特別調參的單目 quick-run 來說是合理的精度水準。軌跡疊圖(藍色是估計軌跡,
+灰色虛線是 ground truth,形狀吻合 `freiburg1_xyz` 這個序列刻意設計的十字型 X/Y/Z 平移運動):
+
+```bash
+evo_ape tum groundtruth.txt frame_trajectory.txt -a
+evo_traj tum frame_trajectory.txt --ref=groundtruth.txt -a --plot_mode=xy --save_plot compare.png
+```
+
+### 輸出檔案怎麼看
+
+`--eval-log-dir` 指定的目錄底下會有:
+
+| 檔案 | 內容 |
+|---|---|
+| `frame_trajectory.txt` | 每一幀的估計位姿,TUM 格式:`timestamp tx ty tz qx qy qz qw`(位置 + 四元數姿態) |
+| `keyframe_trajectory.txt` | 同格式,只列關鍵幀(這次是 19 筆) |
+| `track_times.txt` | 每一幀實際花多少時間追蹤,拿來評估效能 |
+
+`groundtruth.txt`(資料集自帶)也是同樣的 `timestamp tx ty tz qx qy qz qw` 格式,所以能直接拿
+`evo_ape`/`evo_rpe` 比對,不用自己轉檔。
+
+執行過程中出現過幾行 `Cholesky failed` 警告(來自 g2o 做 bundle adjustment 時),只發生在最開始
+建圖的瞬間(初始地圖只有 66 個點,約束不足導致 Hessian 矩陣暫時病態),後續建圖/追蹤沒有再出現、
+結果也正常,先記錄下來,之後如果在其他資料集又看到同樣警告且影響到結果品質,再回頭深究。
 
 ## 已知眉角(踩過的雷)
 
@@ -171,6 +276,9 @@ Viewer 章節,兩者都不需要動 `build.sh` 的核心邏輯。
 - **待辦**(等本地端核心算法測試確認品質沒問題後再推進):建置 `stella_vslam_ros`、決定相機來源
   (實體相機 topic 或 rosbag 離線)、把 `stella_vslam` 的 `local_install/` 讓 ROS2 build 系統找得到、
   規劃跟 `ros2-web-app` 既有節點(如 `fih_rmf_system`)的整合方式。
+- **相機規劃**:未來預計用 ZED 雙目相機——校正參數怎麼拿、`configs/ZED_stereo.yaml` 範本怎麼填、
+  以及目前發現的一個技術限制(本地端 `run_camera_slam` 的 stereo 模式接不了 ZED 這種單一 USB 裝置,
+  建議直接走 ZED 官方 `zed-ros2-wrapper` 接 `stella_vslam_ros`),完整記錄在 `docs/zed_stereo.md`。
 
 ## 版控說明
 

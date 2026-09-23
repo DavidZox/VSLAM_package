@@ -1,0 +1,81 @@
+# ZED 雙目相機範本設定 —— 數值目前是佔位符，實際使用前一定要換成你自己那台 ZED 的校正參數。
+# 完整背景說明、怎麼拿到真實數值、怎麼把影像餵進 stella_vslam，見 ../docs/zed_stereo.md。
+#
+# 這份範本假設輸入是 ZED SDK 已經「rectify（校正對齊）」過的左右影像 —— ZED SDK 預設行為就是
+# 直接吐出已校正的影像，所以不需要 stella_vslam/example/euroc/EuRoC_stereo.yaml 那種
+# StereoRectifier（K/D/R 原始矩陣）區塊。如果你是自己對未校正的原始影像做 rectify，才需要
+# 另外補那個區塊。
+
+Camera:
+  name: "ZED stereo"
+  setup: "stereo"
+  model: "perspective"
+
+  # === 下面四個換成你自己 ZED 的實際數值 ===
+  # 來源可以是 ZED SDK 的 getCameraInformation().camera_configuration.calibration_parameters，
+  # 或是官方依序號提供的 .conf 校正檔（見 docs/zed_stereo.md），對應解析度那個 section
+  # （例如 [LEFT_CAM_HD]）裡的 fx/fy/cx/cy。
+  fx: 700.0 # TODO
+  fy: 700.0 # TODO
+  cx: 640.0 # TODO：通常約影像寬度一半
+  cy: 360.0 # TODO：通常約影像高度一半
+
+  # ZED SDK 輸出的已經是 rectified 影像，理論上沒有殘餘畸變，這裡維持 0 即可
+  k1: 0.0
+  k2: 0.0
+  p1: 0.0
+  p2: 0.0
+  k3: 0.0
+
+  # focal_x_baseline = fx * baseline（單位：公尺）
+  # baseline 從 .conf 檔 [STEREO] 段的 Baseline 欄位取得，注意那邊單位是「毫米」，
+  # 記得先除以 1000 換算成公尺再乘 fx。
+  # 範例：ZED 2i 的 baseline 出廠值約 120mm，若 fx = 700，則 focal_x_baseline ≈ 700 * 0.12 = 84.0
+  focal_x_baseline: 84.0 # TODO
+  depth_threshold: 40
+
+  fps: 30.0 # TODO：換成你實際擷取的 fps
+  cols: 1280 # TODO：換成實際擷取解析度的寬（例如 720p 模式是 1280）
+  rows: 720 # TODO：換成實際擷取解析度的高（例如 720p 模式是 720）
+
+  color_order: "RGB"
+
+# 以下區塊直接沿用 stella_vslam/example/euroc/EuRoC_stereo.yaml 驗證過可動的預設值，
+# 之後測試出問題、想調校時再回來動這裡。
+
+Preprocessing:
+  min_size: 800
+
+Feature:
+  name: "default ORB feature extraction setting"
+  scale_factor: 1.2
+  num_levels: 8
+  ini_fast_threshold: 20
+  min_fast_threshold: 7
+
+Mapping:
+  backend: "g2o"
+  baseline_dist_thr: 0.11
+  redundant_obs_ratio_thr: 0.9
+  erase_temporal_keyframes: false
+  num_temporal_keyframes: 15
+
+Tracking:
+  backend: "g2o"
+  enable_temporal_keyframe_only_tracking: false
+  margin_last_frame_projection: 10.0
+
+KeyframeInserter:
+  wait_for_local_bundle_adjustment: false
+
+Relocalizer:
+  search_neighbor: true
+
+LoopDetector:
+  backend: "g2o"
+
+Initializer:
+  min_num_triangulated_pts: 100
+
+System:
+  map_format: "msgpack"
