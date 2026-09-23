@@ -1,0 +1,12 @@
+[submodule "g2o"]
+	path = g2o
+	url = https://github.com/RainerKuemmerle/g2o.git
+[submodule "stella_vslam"]
+	path = stella_vslam
+	url = https://github.com/stella-cv/stella_vslam.git
+[submodule "stella_vslam_examples"]
+	path = stella_vslam_examples
+	url = https://github.com/stella-cv/stella_vslam_examples.git
+[submodule "stella_vslam_ros"]
+	path = stella_vslam_ros
+	url = https://github.com/stella-cv/stella_vslam_ros.git
