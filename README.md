@@ -17,6 +17,10 @@
       建置那台機器驗證過編譯/運算正常,視窗畫面實際算繪需要在有 GPU 存取權限的終端機自行確認
 - [x] **整條 pipeline ~105 個可調參數整理好了**(見 `docs/tunable_parameters.md`),含官方範例本身的
       bug 跟寫死常數清單,可以系統性地一個一個試
+- [x] **`run_experiment.sh`/`view_experiment.sh` 自動化實驗工具做好了**(見「自動化參數實驗」章節),
+      改一個參數 → 跑一次 → 自動算 APE、存特徵點標註影格/追蹤影片/軌跡疊圖到 `datasets/eval_<實驗名稱>/`,
+      目前已經用 `configs/` 底下 5 組參數實驗(scale_factor、num_levels、min_size、baseline_dist_thr_ratio、
+      故意調錯的 intrinsics)橫向比較過
 - [ ] `stella_vslam_ros`(ROS2 部署層)只做了介接資訊調查,還沒開始建置——待本地端核心算法驗證過再推進
 - [ ] ZED 雙目相機規格只先做了設定範本跟接入方式調查(見 `docs/zed_stereo.md`),還沒有實體相機可以測
 
@@ -29,7 +33,15 @@ VSLAM_package/
 ├── env.sh                執行前 source,設定 LD_LIBRARY_PATH 等環境變數
 ├── .gitmodules            四個上游 repo 的 submodule 註冊資訊
 ├── .gitignore
+├── run_experiment.sh      自動化參數實驗:跑一組 config、算 APE、存標註影格/影片/軌跡圖(見下方說明)
+├── view_experiment.sh     跟 run_experiment.sh 用同一組資料,改成開 PangolinViewer 視窗即時看
 ├── configs/               自己專案的相機設定檔(跟 stella_vslam/example/ 的官方範例分開放)
+│   ├── baseline.yaml          對照組,官方 TUM_RGBD_mono_1.yaml 原封不動的副本
+│   ├── exp_scale_factor.yaml  實驗:scale_factor 1.2 → 1.5
+│   ├── exp_num_levels.yaml    實驗:num_levels 8 → 4
+│   ├── exp_min_size.yaml      實驗:min_size 800 → 300
+│   ├── exp_baseline_ratio.yaml 實驗:baseline_dist_thr_ratio 0.02 → 0.1
+│   ├── exp_bad_intrinsics.yaml 實驗:故意調錯 fx/fy(體會校正錯誤的影響,不是找最佳值)
 │   └── ZED_stereo.yaml    ZED 雙目相機設定範本,細節見 docs/zed_stereo.md
 ├── docs/
 │   ├── zed_stereo.md          ZED 雙目相機校正參數 + 接入方式筆記
@@ -42,7 +54,12 @@ VSLAM_package/
 │
 ├── local_install/        （不進版控）g2o + stella_vslam 的 from-source 安裝結果,by build.sh 產生
 ├── vocab/                （不進版控）ORB 詞彙檔 orb_vocab.fbow,by build.sh 下載
-└── datasets/             （不進版控）測試用資料集,見下方「測試紀錄」
+└── datasets/             （不進版控）測試用資料集 + run_experiment.sh 的輸出,見下方說明
+    └── eval_<實驗名稱>/   每組實驗一個資料夾(run_experiment.sh 自動建立)
+        ├── frame_trajectory.txt / keyframe_trajectory.txt / track_times.txt   估計軌跡與耗時(TUM 格式)
+        ├── frames/*.png                每隔 N 幀存一張「當下影格疊 ORB 特徵點」的標註影像
+        ├── tracking.mp4                 加 --video 才會有,完整追蹤過程影片
+        └── trajectory_comparison_*.png  估計軌跡 vs ground truth 疊圖(evo_traj 產生)
 ```
 
 `local_install/`、`vocab/`、`datasets/`、各 submodule 底下自己的 `build/` 都是建置產物、下載資產或第三方內容,不進版控,重新
@@ -188,13 +205,57 @@ WSLg GPU 驅動設定問題,可以考慮改裝不需要 OpenGL 的 SocketViewer(
 檔調整的常數清單。文件最後也有「怎麼有系統地做參數實驗」的建議流程(改一個參數 → 用 `evo_ape` 量化
 比較 → 換下一個),搭配上面「測試紀錄」章節已經裝好的 `evo`。
 
+### 自動化參數實驗:`run_experiment.sh` / `view_experiment.sh`
+
+手動一步步跑 `run_tum_rgbd_slam` + `evo_ape` + `evo_traj` 太瑣碎,`run_experiment.sh` 把整套流程包成
+一個指令,固定用 `datasets/rgbd_dataset_freiburg1_xyz` 當測試基準,方便不同參數組合橫向比較:
+
+```bash
+# 1. 複製一份 config,改想測的參數
+cp configs/baseline.yaml configs/exp_我的實驗.yaml
+
+# 2. 跑實驗(數字 + 每 30 幀一張標註圖)
+./run_experiment.sh configs/exp_我的實驗.yaml exp_我的實驗
+
+# 3. 想要完整影片再加 --video(較慢、檔案較大,適合最後要拿去寫報告的那幾組再加)
+./run_experiment.sh configs/exp_我的實驗.yaml exp_我的實驗 --video
+```
+
+跑完會自動:
+1. 印出這組跟 ground truth 的 APE(SE(3) Umeyama 對齊,max/mean/median/min/rmse/sse)
+2. 印出 `configs/baseline.yaml`(對照組)的 APE 供比較(baseline 自己不會重複比較)
+3. 把追蹤過程的標註影格(`frames/*.png`)、完整影片(`tracking.mp4`,加 `--video` 才有)、軌跡疊圖
+   (`trajectory_comparison_*.png`)都存到 `datasets/eval_<實驗名稱>/` 底下,可以直接拿去寫報告
+
+想「實際看到畫面」(而不只是看數字跟事後存的靜態圖),用 `view_experiment.sh` 開 PangolinViewer 視窗即時看
+特徵點追蹤 + 3D 地圖建構過程——這支跟前面「視覺化介面」章節一樣,**要在你自己有 GPU/WSLg 存取權限的終端機
+執行**,不要透過自動化工具跑:
+
+```bash
+./view_experiment.sh configs/exp_我的實驗.yaml
+```
+
+目前 `configs/` 底下已經準備好 5 組單一變數的實驗(每份 config 開頭的註解都寫了改了什麼、預期會怎樣),
+對應 `docs/tunable_parameters.md` 裡挑出來的幾個代表性參數:`exp_scale_factor`(金字塔縮放倍率)、
+`exp_num_levels`(金字塔層數)、`exp_min_size`(特徵點分佈網格大小)、`exp_baseline_ratio`(三角化新地標
+要求的最小相機移動量)、`exp_bad_intrinsics`(故意調錯相機焦距,體會校正誤差的影響)。
+
+⚠️ **一個重要前提,解讀數字前一定要記得**:stella_vslam 初始化用的 RANSAC 預設沒有固定種子,所以就算
+**完全不改參數、同一份 config 重跑兩次**,APE 數字也會有小幅波動;實際測下來,效果不夠大、方向不夠穩定
+的參數(例如 `min_size`、`baseline_dist_thr_ratio` 這種調整幅度較保守的實驗)確實出現過「這次變好、下次
+變差」的情況,幅度大到足以讓結論整個翻轉。**只跑一次就下「這個參數比較好」的結論並不可靠**——效果夠大、
+方向跨多次重跑都穩定的(例如 `num_levels` 調小、`bad_intrinsics` 這兩組目前每次重跑都是明顯變差)比較
+能信;效果不上不下的,建議同一組 config 多跑個 2~3 次看數值範圍,不要只憑單次結果比較,或考慮把
+`Initializer.use_fixed_seed` 設成 `true` 固定亂數種子讓結果可重現(細節見 `docs/tunable_parameters.md`)。
+
 ## 測試紀錄
 
 ### TUM RGBD `freiburg1_xyz`(單目,含 ground truth 精度驗證)
 
 EuRoC 官方資料集主機(`robotics.ethz.ch`)目前連不上,改用 [TUM RGBD](https://cvg.cit.tum.de/data/datasets/rgbd-dataset)
 的 `freiburg1_xyz` 序列(手持相機沿 X/Y/Z 軸平移,796 幀,自帶 motion-capture ground truth)驗證整條
-pipeline:
+pipeline。下面是最早手動跑的第一次驗證紀錄;之後系統性比較不同參數改用上面「自動化參數實驗」章節的
+`run_experiment.sh`,不用再照這樣一步步手動下指令:
 
 ```bash
 source env.sh
