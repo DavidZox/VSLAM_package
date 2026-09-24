@@ -13,5 +13,8 @@
 # Build logs
 *_build.log
 
+# g2o Cholesky-failure debug dump (written to cwd whenever a solve fails; harmless, regenerated)
+debug.txt
+
 # Generic build directories
 build/
