@@ -1,3 +1,7 @@
+# 實驗:min_size 從 800 調小到 300
+# 預期:特徵點分配到的目標面積變小 → 特徵點密度變高、數量變多，計算量也會變大；
+#       通常追蹤會更穩（更多可用的匹配點），但速度變慢。
+
 # TUM RGBD monocular model for 01
 
 #==============#
@@ -31,17 +35,17 @@ Camera:
 #=====================#
 
 Preprocessing:
-  min_size: 800
+  min_size: 300
 
 #================#
 # ORB Parameters #
 #================#
 
 Feature:
-  name: "default ORB feature extraction setting"
+  name: "exp_min_size: min_size 800 -> 300 (denser features)"
   scale_factor: 1.2
   num_levels: 8
-  ini_fast_threshold: 35
+  ini_fast_threshold: 20
   min_fast_threshold: 7
 
 #====================#

@@ -1,3 +1,7 @@
+# 實驗:baseline_dist_thr_ratio 從 0.02 調大到 0.1
+# 預期:三角化新地標時，要求的相機移動量（相對場景深度的比例）變嚴格 → 新地標生成變保守，
+#       地圖點數量變少、變稀疏，但每個點的深度應該比較可靠。
+
 # TUM RGBD monocular model for 01
 
 #==============#
@@ -38,7 +42,7 @@ Preprocessing:
 #================#
 
 Feature:
-  name: "default ORB feature extraction setting"
+  name: "exp_baseline_ratio: baseline_dist_thr_ratio 0.02 -> 0.1"
   scale_factor: 1.2
   num_levels: 8
   ini_fast_threshold: 20
@@ -49,7 +53,7 @@ Feature:
 #====================#
 
 Mapping:
-  baseline_dist_thr_ratio: 0.02
+  baseline_dist_thr_ratio: 0.1
   redundant_obs_ratio_thr: 0.9
   num_covisibilities_for_landmark_generation: 20
   num_covisibilities_for_landmark_fusion: 20
