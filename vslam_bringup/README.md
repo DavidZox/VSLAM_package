@@ -4,13 +4,14 @@
 實際運算由 [`stella_vslam_ros`](../stella_vslam_ros/)(submodule)提供,這個套件單純負責「組裝參數、
 把相機 topic 接起來、設定 TF」,跟 `ros2-web-app` 那類專案裡常見的 `*_bringup` 套件角色一樣。
 
-⚠️ **目前驗證狀態**:這台開發機沒有完整 ROS2(`/opt/ros` 不存在),只裝了純 Python 版 `colcon` 做
-部分驗證:
-- ✅ 這個 workspace 的另外兩塊,`g2o`、`stella_vslam`,已經實際用 colcon 編過、成功過
-- ❌ `stella_vslam_ros`、`vslam_bringup` 本身需要 `rclcpp`/`ament_cmake` 等完整 ROS2 環境,**完全沒測過**
+✅ **已經在真正的 ROS2 Jazzy 環境驗證過**:`colcon_build.sh` 在一個實際跑著的 ROS2 Jazzy 容器裡從乾淨
+狀態跑過,`g2o`/`stella_vslam`/`stella_vslam_ros`/`vslam_bringup` 四個套件全部編譯成功,
+`ros2 launch vslam_bringup stereo_vslam.launch.py --show-args` 也確認 launch 檔跟參數都正常。過程中
+連帶修掉 `stella_vslam_ros` 兩個真實 bug(ament 環境 hook 重複註冊、`cv_bridge.h`→`.hpp` 改名),細節
+見主 `README.md`「已知眉角」。
 
-正式使用前,請在有 ROS2 的容器裡照下面「用法」跑一次 `../colcon_build.sh`,有任何編譯錯誤都可能是
-沒辦法在這裡驗證到的地方,回報錯誤訊息就能繼續往下修。
+還沒驗證的只剩「接上真的 ZED 相機」這塊(見下面「已知限制」)——編譯跟 launch 檔本身沒問題,但實際
+影像 topic 名稱、TF 設定都還是紙上規劃,要等實體相機/`zed-ros2-wrapper` 到位才能確認。
 
 ## 為什麼會有這個套件(跟 stella_vslam_ros 差在哪)
 
@@ -84,9 +85,6 @@ ros2 launch vslam_bringup stereo_vslam.launch.py \
 
 ## 已知限制 / 待辦
 
-- [ ] 這台開發機沒有完整 ROS2,`stella_vslam_ros`/`vslam_bringup` 這兩塊(package.xml 依賴是否齊全、
-      launch 檔語法、topic remap 是否真的接得上)都還沒實際 build/run 過一次,需要你在容器裡跑
-      `../colcon_build.sh` 驗證(`g2o`/`stella_vslam` 這兩塊已經驗證過,見上面「目前驗證狀態」)
 - [ ] `zed-ros2-wrapper` 還沒裝過,`launch` 檔預設的 topic 名稱是常見慣例,不是實測結果
 - [ ] `config/zed_stereo_vslam.yaml` 的相機校正參數是佔位符,等實體 ZED 到手才能填真實值
 - [ ] 還沒決定要不要把 `zed-ros2-wrapper` 也用同一種 symlink 方式併進 `../src/`,或是併入
