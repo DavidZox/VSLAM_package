@@ -30,6 +30,19 @@ if ! command -v colcon >/dev/null 2>&1; then
     exit 1
 fi
 
+# 把 ORB 詞彙檔準備進 vslam_bringup/vocab/,讓 colcon 把它一起裝進 share/(見 vslam_bringup/CMakeLists.txt),
+# 這樣 launch 檔的 vocab_file 預設路徑才不會綁死這台機器的絕對路徑,換一台機器部署也能直接用。
+# 不進版控(檔案 43MB,見 .gitignore),優先複製本地端測試已經下載好的那份,沒有才現抓一份。
+VOCAB_DST="$ROOT/vslam_bringup/vocab/orb_vocab.fbow"
+if [ ! -f "$VOCAB_DST" ]; then
+    mkdir -p "$ROOT/vslam_bringup/vocab"
+    if [ -f "$ROOT/vocab/orb_vocab.fbow" ]; then
+        cp "$ROOT/vocab/orb_vocab.fbow" "$VOCAB_DST"
+    else
+        curl -fL -o "$VOCAB_DST" https://github.com/stella-cv/FBoW_orb_vocab/raw/main/orb_vocab.fbow
+    fi
+fi
+
 # g2o 跟 stella_vslam 都是純 CMake 專案(不是 ament 套件),各自需要不同的 -D 旗標才能正確配置。
 # colcon 的 --cmake-args 是整個 build 一次套用給所有 cmake 類型套件的全域旗標,不是每個套件分開給——
 # 這裡把兩邊需要的旗標直接合併成一份列表,對「不認得的那個套件」來說,多出來的 -D 變數 CMake 會

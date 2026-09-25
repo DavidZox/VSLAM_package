@@ -5,10 +5,11 @@
 發布的 topic 上——運算全部由 stella_vslam_ros 提供。
 
 前提:
-  - stella_vslam_ros 已經在某個 colcon workspace 裡 build 好(見套件根目錄 README「怎麼串進
-    colcon workspace」章節,這個套件目前還沒有自動處理這件事)
-  - vocab 檔案(orb_vocab.fbow)路徑要自己傳進來,這個套件不包 vocab(檔案不小,不適合放進
-    ROS2 套件版控),預設指向 VSLAM_package/vocab/orb_vocab.fbow
+  - stella_vslam_ros 已經在某個 colcon workspace 裡 build 好(見主 README「未來部署方式:ROS2」)
+  - vocab 檔案(orb_vocab.fbow)——不進版控(檔案 43MB,不適合放進 git,見 .gitignore),但
+    colcon_build.sh 會在 build 前自動準備好、跟著這個套件一起裝進 share/,所以預設值在任何裝過這個
+    套件的機器上都能直接用,不用手動傳路徑;只有繞過 colcon_build.sh 直接 colcon build 時才需要自己
+    指定 vocab_file:=
   - 已經有一個 ZED 影像來源節點(例如 zed-ros2-wrapper)在跑,發布已校正的左右影像 topic
 
 用法:
@@ -28,8 +29,9 @@ def generate_launch_description():
 
     vocab_file_arg = DeclareLaunchArgument(
         'vocab_file',
-        default_value='/home/david/VSLAM_package/vocab/orb_vocab.fbow',
-        description='ORB 詞彙檔路徑(build.sh 產生在 VSLAM_package/vocab/orb_vocab.fbow)'
+        default_value=PathJoinSubstitution([pkg_share, 'vocab', 'orb_vocab.fbow']),
+        description='ORB 詞彙檔路徑——colcon_build.sh 會自動把它裝進這個套件的 share 目錄,'
+                     '不依賴任何特定機器的絕對路徑,不同機器上部署也能直接用'
     )
     config_file_arg = DeclareLaunchArgument(
         'config_file',

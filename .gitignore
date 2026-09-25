@@ -9,6 +9,7 @@
 # Downloaded runtime assets (re-downloadable, not project source)
 /vocab/
 /datasets/
+/vslam_bringup/vocab/
 
 # Build logs
 *_build.log

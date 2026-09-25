@@ -26,6 +26,9 @@
 - `config/zed_stereo_vslam.yaml`——ZED 相機校正參數 + stella_vslam 演算法參數(對應本地端測試用的
   `../configs/ZED_stereo.yaml`,但這是給 ROS2 部署用的獨立副本,原因見檔案開頭註解)
 - `config/vslam_ros_params.yaml`——ROS2 節點參數(TF frame id、是否發布 TF 等)
+- `vocab/orb_vocab.fbow`——ORB 詞彙檔,不進版控(43MB,見 `.gitignore`),`../colcon_build.sh` 會在
+  build 前自動準備好(複製本地端測試已下載的那份,沒有就現抓),讓它跟著這個套件一起裝進 ROS2 的
+  share 目錄,launch 檔預設路徑才不會綁死特定機器的絕對路徑
 
 ## 前提
 
@@ -66,7 +69,7 @@ ros2 launch vslam_bringup stereo_vslam.launch.py \
 
 | 參數 | 預設值 | 用途 |
 |---|---|---|
-| `vocab_file` | `VSLAM_package/vocab/orb_vocab.fbow` | ORB 詞彙檔路徑 |
+| `vocab_file` | 這個套件 share 目錄底下的 `vocab/orb_vocab.fbow`(`colcon_build.sh` 自動準備,不綁死機器路徑) | ORB 詞彙檔路徑 |
 | `config_file` | `config/zed_stereo_vslam.yaml` | 相機/演算法設定 |
 | `params_file` | `config/vslam_ros_params.yaml` | ROS2 節點參數(TF 等) |
 | `viewer` | `none` | 機上無頭部署預設不開視窗;要現場除錯看畫面才改 |
