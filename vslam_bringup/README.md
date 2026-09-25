@@ -1,0 +1,96 @@
+# vslam_bringup
+
+雙目(ZED)VSLAM 部署用的 ROS2 **bringup 套件**——只包 launch 檔跟參數 YAML,**不含 SLAM 演算法本身**。
+實際運算由 [`stella_vslam_ros`](../stella_vslam_ros/)(submodule)提供,這個套件單純負責「組裝參數、
+把相機 topic 接起來、設定 TF」,跟 `ros2-web-app` 那類專案裡常見的 `*_bringup` 套件角色一樣。
+
+⚠️ **目前驗證狀態**:這台開發機沒有完整 ROS2(`/opt/ros` 不存在),只裝了純 Python 版 `colcon` 做
+部分驗證:
+- ✅ 這個 workspace 的另外兩塊,`g2o`、`stella_vslam`,已經實際用 colcon 編過、成功過
+- ❌ `stella_vslam_ros`、`vslam_bringup` 本身需要 `rclcpp`/`ament_cmake` 等完整 ROS2 環境,**完全沒測過**
+
+正式使用前,請在有 ROS2 的容器裡照下面「用法」跑一次 `../colcon_build.sh`,有任何編譯錯誤都可能是
+沒辦法在這裡驗證到的地方,回報錯誤訊息就能繼續往下修。
+
+## 為什麼會有這個套件(跟 stella_vslam_ros 差在哪)
+
+`stella_vslam_ros` 是**別人的 open source 套件**(用 git submodule 引用,見主 `README.md`「版控說明」),
+裡面的 `run_slam` 節點寫死訂閱 `camera/left/image_raw`、`camera/right/image_raw` 這種通用 topic 名稱,
+也不帶任何 launch 檔——直接用需要自己每次手動組一長串 `ros2 run` 參數。
+
+`vslam_bringup` 是**你自己的部署設定**,不是第三方 repo,所以直接放在 `VSLAM_package` 自己的版控裡
+(不是 submodule),裡面放:
+
+- `launch/stereo_vslam.launch.py`——一個指令啟動,自動帶好參數、把 topic remap 到實際的 ZED topic
+- `config/zed_stereo_vslam.yaml`——ZED 相機校正參數 + stella_vslam 演算法參數(對應本地端測試用的
+  `../configs/ZED_stereo.yaml`,但這是給 ROS2 部署用的獨立副本,原因見檔案開頭註解)
+- `config/vslam_ros_params.yaml`——ROS2 節點參數(TF frame id、是否發布 TF 等)
+
+## 前提
+
+1. **有 ROS2 環境,`stella_vslam_ros` 的依賴要補齊**。`VSLAM_package` 根目錄現在已經是一個 colcon
+   workspace(`src/` 底下是指回 `g2o`/`stella_vslam`/`stella_vslam_ros`/`vslam_bringup` 的 symlink),
+   不用自己手動決定 workspace 位置或設 `CMAKE_PREFIX_PATH`——`../colcon_build.sh` 一個指令會把
+   `g2o → stella_vslam → stella_vslam_ros → vslam_bringup` 依序編完(細節、取捨說明見主 `README.md`
+   「未來部署方式:ROS2」章節)。唯一要自己先做的是把 `stella_vslam_ros` 列的 ROS2 依賴(`rclcpp`、
+   `cv_bridge`、`tf2` 全家桶等,完整清單見 `../stella_vslam_ros/package.xml`)裝齊,建議在容器裡跑
+   `rosdep install --from-paths ../src --ignore-src -r -y`。
+2. **要有 ZED 影像來源**——目前規劃是用 Stereolabs 官方
+   [`zed-ros2-wrapper`](https://github.com/stereolabs/zed-ros2-wrapper),發布已經 rectify 過的左右
+   影像 topic(見 `../docs/zed_stereo.md` 的建議路)。**這台機器還沒裝過**,`launch` 檔裡預設的 topic
+   名稱(`/zed/zed_node/left/image_rect_color` 等)是 wrapper 常見慣例,不是實測過的——部署前務必自己
+   `ros2 topic list` 核對,不要照抄。
+3. **ZED 校正參數**——`config/zed_stereo_vslam.yaml` 目前 `fx`/`fy`/`cx`/`cy`/`focal_x_baseline`/
+   `cols`/`rows`/`fps` 都是佔位符(標 `# TODO`),真的有 ZED 相機後,照 `../docs/zed_stereo.md` 的步驟
+   填入實際數值。
+
+## 用法(等前提都滿足之後)
+
+```bash
+# 在 VSLAM_package 根目錄(不是這裡)
+cd ..
+source /opt/ros/<distro>/setup.bash
+./colcon_build.sh              # 第一次,或 g2o/stella_vslam 有改動時
+source install/setup.bash
+
+ros2 launch vslam_bringup stereo_vslam.launch.py \
+  left_image_topic:=/zed/zed_node/left/image_rect_color \
+  right_image_topic:=/zed/zed_node/right/image_rect_color
+```
+
+只改了 `stella_vslam_ros`/`vslam_bringup` 這兩塊(沒動 `g2o`/`stella_vslam`)的話,不用整個重編,
+用 `colcon build --base-paths src --packages-select stella_vslam_ros vslam_bringup` 加減省點時間。
+
+常用覆寫參數(完整清單見 `launch/stereo_vslam.launch.py` 裡每個 `DeclareLaunchArgument` 的說明):
+
+| 參數 | 預設值 | 用途 |
+|---|---|---|
+| `vocab_file` | `VSLAM_package/vocab/orb_vocab.fbow` | ORB 詞彙檔路徑 |
+| `config_file` | `config/zed_stereo_vslam.yaml` | 相機/演算法設定 |
+| `params_file` | `config/vslam_ros_params.yaml` | ROS2 節點參數(TF 等) |
+| `viewer` | `none` | 機上無頭部署預設不開視窗;要現場除錯看畫面才改 |
+| `left_image_topic` / `right_image_topic` | ZED wrapper 常見預設(未驗證) | 實際 ZED 左右眼 topic,務必自行核對 |
+
+節點啟動後可以用的輸出(topic 名稱前面會自動加節點名稱 `run_slam`,即 ROS2 的 private topic 慣例):
+
+| topic | 型別 | 內容 |
+|---|---|---|
+| `/run_slam/camera_pose` | `nav_msgs/Odometry` | 目前估計的相機位姿(map_frame → camera_frame) |
+| `/run_slam/keyframes` | `geometry_msgs/PoseArray` | 所有關鍵幀的 3D 位置,拿來在 RViz 看地圖建構狀況 |
+| `/run_slam/keyframes_2d` | `geometry_msgs/PoseArray` | 同上,投影到 2D 平面版本 |
+
+如果 `vslam_ros_params.yaml` 裡 `publish_tf: true`,還會發布 `map` → `odom` 的 TF(需要另外有節點在發布
+`odom` → `base_link`,例如輪速計,`stella_vslam_ros` 不會自己生出這段)。
+
+## 已知限制 / 待辦
+
+- [ ] 這台開發機沒有完整 ROS2,`stella_vslam_ros`/`vslam_bringup` 這兩塊(package.xml 依賴是否齊全、
+      launch 檔語法、topic remap 是否真的接得上)都還沒實際 build/run 過一次,需要你在容器裡跑
+      `../colcon_build.sh` 驗證(`g2o`/`stella_vslam` 這兩塊已經驗證過,見上面「目前驗證狀態」)
+- [ ] `zed-ros2-wrapper` 還沒裝過,`launch` 檔預設的 topic 名稱是常見慣例,不是實測結果
+- [ ] `config/zed_stereo_vslam.yaml` 的相機校正參數是佔位符,等實體 ZED 到手才能填真實值
+- [ ] 還沒決定要不要把 `zed-ros2-wrapper` 也用同一種 symlink 方式併進 `../src/`,或是併入
+      `ros2-web-app` 既有 workspace(只有紙上規劃,見主 `README.md`「未來部署方式」章節)
+- [ ] `vslam_ros_params.yaml` 的 `odom_frame`/`map_frame`/`robot_base_frame` 目前是 ROS2 常見慣例值,
+      真的要接上機器人平台(例如 `ros2-web-app` 既有節點)時要跟對方的 TF 樹對過,不能假設現在填的
+      名字就是對的

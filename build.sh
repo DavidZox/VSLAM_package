@@ -31,13 +31,6 @@ cmake -S "$ROOT/g2o" -B "$ROOT/g2o/build" \
 cmake --build "$ROOT/g2o/build" -j"$JOBS"
 cmake --install "$ROOT/g2o/build"
 
-# g2o's installed g2oConfig.cmake unconditionally does find_dependency(OpenGL),
-# even though we built with G2O_USE_OPENGL=OFF. None of the components stella_vslam
-# links (core/stuff/types_sba/types_sim3/solver_dense/solver_eigen/solver_csparse/
-# csparse_extension) need it, so drop the line rather than pull in system OpenGL dev
-# packages for nothing.
-sed -i '/find_dependency(OpenGL)/d' "$PREFIX/lib/cmake/g2o/g2oConfig.cmake"
-
 echo "==> [2/4] stella_vslam"
 cmake -S "$ROOT/stella_vslam" -B "$ROOT/stella_vslam/build" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -70,7 +63,17 @@ echo "    source $ROOT/env.sh"
 echo "    \"\$RUN_VIDEO_SLAM\" -h"
 
 # Notes on cmake_minimum_required and CMAKE_POLICY_VERSION_MINIMUM=3.5:
-#   stella_vslam and stella_vslam_examples both declare
-#   cmake_minimum_required(VERSION 3.1), which CMake >= 4.0 refuses outright
+#   stella_vslam (and its nested submodule 3rd/tinycolormap) and stella_vslam_examples
+#   all declare cmake_minimum_required(VERSION 3.1), which CMake >= 4.0 refuses outright
 #   ("Compatibility with CMake < 3.5 has been removed"). This flag is CMake's
 #   documented escape hatch; g2o didn't need it (its minimum is already 3.14).
+#
+# Note on g2oConfig.cmake: it used to unconditionally do find_dependency(OpenGL) even
+# when built with G2O_USE_OPENGL=OFF, requiring a manual sed patch after install. Fixed
+# at the source in g2o/cmake_modules/Config.cmake.in (now conditional on G2O_USE_OPENGL),
+# so no patch step is needed here anymore.
+#
+# This script builds g2o/stella_vslam into local_install/ for the local core-algorithm
+# testing tools (stella_vslam_examples, run_experiment.sh) — it does not need ROS2.
+# For the ROS2 deployment stack (stella_vslam_ros, vslam_bringup), see colcon_build.sh
+# instead, which builds g2o/stella_vslam a second time into colcon's own install/ prefix.

@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+    <name>vslam_bringup</name>
+    <version>0.1.0</version>
+    <description>
+        雙目(ZED)VSLAM 部署用的 bringup 套件:只包 launch 檔跟參數 YAML,不含 SLAM 演算法本身。
+        實際運算由 stella_vslam_ros 套件提供,這裡負責組裝參數、接相機 topic、串 TF。
+    </description>
+    <maintainer email="SteveTsai@fih-foxconn.com">Steve Tsai</maintainer>
+
+    <license>BSD-2-Clause</license>
+    <url type="repository">https://github.com/DavidZox/VSLAM_package</url>
+
+    <buildtool_depend>ament_cmake</buildtool_depend>
+
+    <!-- 實際跑 SLAM 的節點來自這個套件(見 ../stella_vslam_ros/),這裡只在執行期需要它 -->
+    <exec_depend>stella_vslam_ros</exec_depend>
+    <exec_depend>launch</exec_depend>
+    <exec_depend>launch_ros</exec_depend>
+
+    <!--
+      雙目影像來源預期是 Stereolabs 官方 zed-ros2-wrapper(套件名稱通常是 zed_wrapper,
+      但確切名稱/版本要看你之後裝的是哪個版本,這裡先不寫死成 <exec_depend>,
+      避免 rosdep/colcon 找不到套件名稱而擋住整個 build。等實際裝好、確認套件名稱後
+      再補上正式的 exec_depend。
+    -->
+
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>

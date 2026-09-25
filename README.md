@@ -21,15 +21,32 @@
       改一個參數 → 跑一次 → 自動算 APE、存特徵點標註影格/追蹤影片/軌跡疊圖到 `datasets/eval_<實驗名稱>/`,
       目前已經用 `configs/` 底下 5 組參數實驗(scale_factor、num_levels、min_size、baseline_dist_thr_ratio、
       故意調錯的 intrinsics)橫向比較過
-- [ ] `stella_vslam_ros`(ROS2 部署層)只做了介接資訊調查,還沒開始建置——待本地端核心算法驗證過再推進
-- [ ] ZED 雙目相機規格只先做了設定範本跟接入方式調查(見 `docs/zed_stereo.md`),還沒有實體相機可以測
+- [x] **本地端核心算法測試確認沒問題**,`vslam_bringup/` ROS2 部署套件骨架已建好(launch 檔 + 雙目
+      參數 YAML + package.xml/CMakeLists,見「未來部署方式:ROS2」章節)
+- [x] **改成 workspace 式排列,`g2o`/`stella_vslam`/`stella_vslam_ros`/`vslam_bringup` 一個 `colcon
+      build` 指令(`./colcon_build.sh`)就能一起編完**,原始碼還是各自獨立的 submodule/自己的資料夾,
+      不用整包複製進 `vslam_bringup`(見「未來部署方式:ROS2」章節說明取捨)
+- [x] **`g2o`、`stella_vslam` 這兩塊已經實際用 colcon 編過、成功**(這台機器沒有完整 ROS2,但裝了純
+      Python 版 `colcon` 驗證這兩塊沒問題),過程中修掉一個 g2o fork 的 CMake config 真實 bug(見下方
+      「已知眉角」)
+- [ ] `stella_vslam_ros`、`vslam_bringup` 這兩塊需要完整 ROS2(rclcpp 等)才能編,這台機器沒有裝,
+      **還沒實際驗證過**——需要你在有 ROS2 的容器裡跑一次 `./colcon_build.sh` 確認
+- [ ] ZED 雙目相機規格只先做了設定範本跟接入方式調查(見 `docs/zed_stereo.md`),還沒有實體相機可以測,
+      `zed-ros2-wrapper` 也還沒裝過
 
 ## 資料夾結構
 
 ```
 VSLAM_package/
 ├── README.md            本文件
-├── build.sh              一鍵建置腳本(g2o → stella_vslam → stella_vslam_examples）
+├── build.sh              本地端核心算法建置腳本(g2o → stella_vslam → stella_vslam_examples,裝到
+│                         local_install/,給 run_experiment.sh 這套非 ROS2 測試工具用)
+├── colcon_build.sh        ROS2 部署建置腳本(g2o → stella_vslam → stella_vslam_ros → vslam_bringup,
+│                         一個 colcon build 指令全部編完,裝到 install/,需要 ROS2 環境)
+├── src/                   colcon workspace 用的 symlink(指回下面同名的資料夾,不是複製),
+│                         純粹讓 colcon 找得到套件在哪——實際編輯還是改 g2o/、stella_vslam/ 等
+│                         原本的資料夾。symlink 本身很小,有進版控,clone 完就能直接用,不用
+│                         自己手動重建
 ├── env.sh                執行前 source,設定 LD_LIBRARY_PATH 等環境變數
 ├── .gitmodules            四個上游 repo 的 submodule 註冊資訊
 ├── .gitignore
@@ -50,7 +67,10 @@ VSLAM_package/
 ├── g2o/                  【submodule】RainerKuemmerle/g2o,stella_vslam 的圖優化後端依賴
 ├── stella_vslam/          【submodule】核心 VSLAM 演算法庫
 ├── stella_vslam_examples/ 【submodule】本地端測試執行檔原始碼(run_video_slam 等,見下方說明)
-├── stella_vslam_ros/       【submodule】ROS2 部署層,尚未建置
+├── stella_vslam_ros/       【submodule】ROS2 部署層(SLAM 節點本體),尚未建置
+├── vslam_bringup/          自己寫的 ROS2 bringup 套件(不是 submodule):launch 檔 + 雙目參數 YAML,
+│                           負責組裝、部署 stella_vslam_ros,細節見 vslam_bringup/README.md 跟下方
+│                           「未來部署方式:ROS2」章節
 │
 ├── local_install/        （不進版控）g2o + stella_vslam 的 from-source 安裝結果,by build.sh 產生
 ├── vocab/                （不進版控）ORB 詞彙檔 orb_vocab.fbow,by build.sh 下載
@@ -309,37 +329,90 @@ evo_traj tum frame_trajectory.txt --ref=groundtruth.txt -a --plot_mode=xy --save
   只剩各資料集的 YAML 設定檔。
 - **這台機器的 CMake(4.x)會直接拒絕** `stella_vslam`/`stella_vslam_examples` 宣告的
   `cmake_minimum_required(VERSION 3.1)`,要加 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`(已寫進 `build.sh`)。
-- **g2o 裝出來的 `g2oConfig.cmake` 有問題**:不管有沒有開 `G2O_USE_OPENGL`,都無條件
-  `find_dependency(OpenGL)`,導致 `stella_vslam` 的 `find_package(g2o)` 失敗。`stella_vslam` 實際用到的
-  g2o 元件都不需要 OpenGL,`build.sh` 裝完 g2o 後會自動把這行刪掉。
+- **g2o 的 `g2oConfig.cmake` 曾經有問題**:不管有沒有開 `G2O_USE_OPENGL`,都無條件
+  `find_dependency(OpenGL)`,導致 `stella_vslam` 的 `find_package(g2o)` 在沒裝 OpenGL dev 套件的環境
+  失敗。這是 g2o 自己 CMake config 模板(`cmake_modules/Config.cmake.in`)的 bug,不是我們用法的問題
+  ——因為 `g2o/` 現在是自己的 fork,已經直接在源頭修掉(改成用 `G2O_USE_OPENGL` 開關包起來),
+  不用再手動事後 patch 安裝出來的檔案。
 - **Ubuntu 的 `libg2o-dev` apt 套件不能用**——下載下來檢查過,裡面沒附 CMake config 檔(`g2oConfig.cmake`
   等),`stella_vslam` 的 `find_package(g2o REQUIRED ...)` 找不到對應的 imported target,只能從原始碼編譯。
 - **`stella_vslam_examples` 自己也有 submodule**(`3rd/filesystem`),`git submodule update --init
   --recursive` 要用 `--recursive`,不然編譯會在 `#include <ghc/filesystem.hpp>` 那行直接失敗。
 
-## 未來部署方式:ROS2(`stella_vslam_ros`)
+## 未來部署方式:ROS2(`stella_vslam_ros` + `vslam_bringup`)
 
-還沒開始建置,先記錄調查過的介接資訊,供之後串接 `ros2-web-app` 工作流程參考:
+本地端核心算法測試確認沒問題後,已經先把部署用的骨架建起來,分兩塊:
+
+- **`stella_vslam_ros/`**(submodule,別人的套件,實際 SLAM 運算在這裡)
+- **`vslam_bringup/`**(自己寫的,不是 submodule):launch 檔 + 雙目參數 YAML,細節、用法、目前還沒
+  驗證過的部分都寫在 [`vslam_bringup/README.md`](vslam_bringup/README.md)
+
+⚠️ 這台機器沒有裝 ROS2(`/opt/ros` 不存在),所以 `vslam_bringup` 目前**只有骨架,還沒真的
+build/run 過**——內容是照 `stella_vslam_ros` 原始碼(topic 名稱、參數名稱、預設值都直接查程式碼
+核對過)寫出來的,不是憑空猜的,但實際跑不跑得起來還沒驗證,拿到 ROS2 環境後要自己走一次。
+
+介接資訊(供之後串接 `ros2-web-app` 工作流程參考):
 
 - **套件型態**:標準 `ament_cmake` 套件,跟現有 ROS2 workspace 一致,`colcon build` 即可,依賴
   `stella_vslam`(要能被 CMake/ament 找到)+ `rclcpp`、`rclcpp_components`、`cv_bridge`、`image_transport`、
   `tf2` 全家桶(`tf2_eigen`/`tf2_geometry_msgs`/`tf2_msgs`/`tf2_ros`)、`geometry_msgs`、`nav_msgs`、
   `sensor_msgs`、`message_filters`、`rosbag2_cpp`、`libgoogle-glog-dev`。
-- **訂閱 topic**(依相機設定擇一):
+- **訂閱 topic**(依相機設定擇一,雙目就是 `vslam_bringup` 目前接的這組):
   - 單目:`camera/image_raw`
   - 雙目:`camera/left/image_raw`、`camera/right/image_raw`
   - RGBD:`camera/color/image_raw`、`camera/depth/image_raw`
-- **發布**:`~/camera_pose`;可選發布 TF(`publish_tf` 參數),搭配 `odom_frame`/`map_frame`/
-  `robot_base_frame`/`camera_frame`/`transform_tolerance` 等參數調整座標系。
-- **執行檔**:註冊為 composable node,`ros2 run stella_vslam_ros system`。另外有一個
-  `run_slam_offline` 可以直接讀 rosbag2 檔案跑,不用即時訂閱 topic——很適合拿現場錄好的 rosbag 離線
-  驗證,不用真的接上相機 topic。
-- **待辦**(等本地端核心算法測試確認品質沒問題後再推進):建置 `stella_vslam_ros`、決定相機來源
-  (實體相機 topic 或 rosbag 離線)、把 `stella_vslam` 的 `local_install/` 讓 ROS2 build 系統找得到、
-  規劃跟 `ros2-web-app` 既有節點(如 `fih_rmf_system`)的整合方式。
-- **相機規劃**:未來預計用 ZED 雙目相機——校正參數怎麼拿、`configs/ZED_stereo.yaml` 範本怎麼填、
-  以及目前發現的一個技術限制(本地端 `run_camera_slam` 的 stereo 模式接不了 ZED 這種單一 USB 裝置,
-  建議直接走 ZED 官方 `zed-ros2-wrapper` 接 `stella_vslam_ros`),完整記錄在 `docs/zed_stereo.md`。
+- **發布**:`~/camera_pose`(`nav_msgs/Odometry`)、`~/keyframes`/`~/keyframes_2d`
+  (`geometry_msgs/PoseArray`);可選發布 `map`→`odom` TF(`publish_tf` 參數),搭配
+  `odom_frame`/`map_frame`/`robot_base_frame`/`camera_frame`/`transform_tolerance` 等參數調整座標系
+  ——完整參數說明跟預設值見 `vslam_bringup/config/vslam_ros_params.yaml` 裡的註解。
+- **執行檔有兩種**(功能一樣,包裝方式不同):
+  - `run_slam`:一般 standalone 節點,設定用命令列參數(`-v`/`-c`/`--viewer` 等)——`vslam_bringup`
+    目前用的是這個,單純直觀,跟一般 launch 檔慣用模式一致。
+  - `system`:註冊成 composable node(`ros2 run stella_vslam_ros system`),設定改用 ROS2 參數
+    (`vocab_file_path`/`setting_file_path` 等)而不是命令列參數,適合要跟其他節點一起塞進同一個
+    component container(共用行程、少一點 process 間通訊開銷)的情境——目前沒有這個需求,先用
+    `run_slam` 就好,以後真的要做 component container 整合再切換。
+  - 另外有一個 `run_slam_offline` 可以直接讀 rosbag2 檔案跑,不用即時訂閱 topic,適合拿現場錄好的
+    rosbag 離線驗證。
+
+### 怎麼編:`colcon_build.sh`(一個指令,g2o → stella_vslam → stella_vslam_ros → vslam_bringup)
+
+```bash
+# 在有 ROS2 的容器/機器裡
+source /opt/ros/<distro>/setup.bash
+git submodule update --init --recursive
+./colcon_build.sh
+source install/setup.bash
+ros2 launch vslam_bringup stereo_vslam.launch.py
+```
+
+`colcon_build.sh` 內部就是 `colcon build --base-paths src --cmake-args ...`,`src/` 底下是指回
+`g2o/`、`stella_vslam/`、`stella_vslam_ros/`、`vslam_bringup/` 的 symlink(細節見上面「資料夾結構」)。
+**原始碼沒有複製或搬進 `vslam_bringup`**——一開始想直接把需要的原始碼整包塞進 `vslam_bringup`,
+但 `g2o`/`stella_vslam` 是別人的大型上游專案,整包複製進來會重蹈之前解決過的 git 肥大覆轍(見「版控
+說明」),所以改用「各自維持獨立 submodule,但排在同一個 colcon workspace 底下」的方式——效果上一樣是
+一個 `colcon build` 全部編完,而且 `g2o`/`stella_vslam` 裡的原始碼本來就是完全可以直接編輯的一般檔案
+(submodule 只影響「這個資料夾對應上游哪個 commit」怎麼被 `VSLAM_package` 記錄,不影響能不能改檔案),
+之後要自己改演算法、改 ROS2 節點,直接在 `g2o/`、`stella_vslam/`、`stella_vslam_ros/` 裡面改就好。
+
+⚠️ **目前驗證狀態**(這台開發機沒有完整 ROS2,只用純 Python 版 `colcon` 驗證,無法測 ROS2 相關套件):
+- ✅ **`g2o`、`stella_vslam` 已經實際用 colcon 編過,成功**——過程中發現並修掉一個真的存在的問題:
+  `g2o` 自己的 CMake config 模板有 bug(見「已知眉角」),而且順便發現 `colcon.pkg`(原本想拿來給
+  每個套件各自的 CMake 參數用)這台 colcon 版本並沒有真的生效,所以改成 `colcon_build.sh` 裡一次給
+  全部套件的合併旗標(對用不到的套件而言,多餘的 `-D` 參數 CMake 會直接忽略,不會出錯)。
+- ❌ **`stella_vslam_ros`、`vslam_bringup` 需要 `rclcpp`/`ament_cmake` 等完整 ROS2 環境,這台機器沒有,
+  完全沒測過**——需要你在有 ROS2 的容器裡跑一次 `./colcon_build.sh`,如果 `stella_vslam_ros` 的
+  `package.xml` 依賴(`rclcpp`、`cv_bridge`、`tf2` 全家桶等)沒裝齊,建議先在容器裡跑
+  `rosdep install --from-paths src --ignore-src -r -y` 補齊。有任何編譯錯誤都可能是我沒辦法在這裡
+  驗證到的地方,回報錯誤訊息就能繼續往下修。
+
+- **待辦**:實際在 ROS2 容器裡跑通 `colcon_build.sh`、決定 `zed-ros2-wrapper` 要不要也用同一種 symlink
+  方式併進這個 workspace、規劃跟 `ros2-web-app` 既有節點(如 `fih_rmf_system`)的整合方式(獨立
+  workspace 對接,或未來把這裡的 `src/` 也併進 `ros2-web-app` 的 workspace)。
+- **相機規劃**:未來預計用 ZED 雙目相機——校正參數怎麼拿、`vslam_bringup/config/zed_stereo_vslam.yaml`
+  怎麼填、以及目前發現的一個技術限制(本地端 `run_camera_slam` 的 stereo 模式接不了 ZED 這種單一
+  USB 裝置,建議直接走 ZED 官方 `zed-ros2-wrapper` 接 `stella_vslam_ros`,`vslam_bringup` 的 launch 檔
+  已經是照這個假設寫的),完整記錄在 `docs/zed_stereo.md`。
 
 ## 版控說明
 
@@ -353,6 +426,13 @@ git submodule 引用(`.gitmodules` 記錄版本指標,只占幾 KB),而不是整
 `DavidZox/stella_vslam` 等),不是直接指向 `stella-cv`/`RainerKuemmerle` 原始 repo——避免上游哪天改版本、
 砍分支甚至整個 repo 消失,導致這裡的 submodule 指標抓不到對應 commit。每個 submodule 資料夾裡另外設了
 `upstream` remote 指回原始 repo。
+
+這也是為什麼幫 ROS2 部署加 colcon 支援時,`g2o/package.xml`(新增,上游原本沒有)、
+`stella_vslam/package.xml`(上游其實已經有、已經是 `build_type: cmake`,只改了一行依賴,把
+`libg2o` 換成我們 workspace 裡實際的 `g2o` 套件名稱)、還有 `g2o/cmake_modules/Config.cmake.in`
+的 bug 修正,都是直接改在 `g2o/`、`stella_vslam/` 這兩個 fork 裡面,而不是另外複製一份出來改——
+這些改動屬於「修改 submodule 裡面的內容」,套用下一節的兩層 push 流程,commit/push 之前記得先進
+`g2o/`、`stella_vslam/` 各自資料夾裡處理好第一層。
 
 ### 修改 submodule 裡面的內容時,一定要「兩層都 push」
 

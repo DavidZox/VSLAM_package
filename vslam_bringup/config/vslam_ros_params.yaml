@@ -1,0 +1,50 @@
+# stella_vslam_ros 的 run_slam 節點參數。
+# 跟上面 zed_stereo_vslam.yaml 不一樣 —— 這份是「ROS2 節點參數」(topic/TF/frame id 這些跟
+# ROS2 整合有關的設定),不是相機/演算法本身的參數(那些在 zed_stereo_vslam.yaml 裡)。
+#
+# 節點名稱寫死是 run_slam(stella_vslam_ros 原始碼裡 rclcpp::Node 建構子直接寫死這個名字，
+# 見 stella_vslam_ros/src/run_slam.cc），跟 launch 檔裡 Node action 的 name 對應。
+#
+# 每個值後面註解是 stella_vslam_ros 程式碼裡的預設值(見 stella_vslam_ros/src/stella_vslam_ros.cc
+# 的 setParams())——這份檔案等於是把預設值明講出來,方便之後照需要調整,不用回頭翻原始碼。
+
+run_slam:
+  ros__parameters:
+    # 要不要發布 map -> odom 的 TF(給 nav2 這類需要 TF 樹的下游用)。
+    # 開了之後,節點會嘗試查詢 camera_optical_frame -> odom_frame 的既有 TF 再組合出來,
+    # 代表 odom_frame 這個座標系要已經有其他節點在發布(例如輪速計/IMU 的 odometry),
+    # 不是 stella_vslam_ros 自己生出來的。
+    publish_tf: true
+
+    # 下面三個是 TF 座標系名稱,要跟你機器人整體的 TF 樹(URDF、nav2 設定)對上,
+    # 不是隨便寫的字串就能動 —— 目前先填 ROS2 常見慣例,實際部署到你的機器人平台時
+    # (例如串 ros2-web-app 既有的節點)要回來確認這三個名字跟其他節點期待的一致。
+    odom_frame: "odom"                # 預設值:"odom"
+    map_frame: "map"                  # 預設值:"map"
+    robot_base_frame: "base_link"     # 預設值:"base_link"
+
+    # 發布出去的 ~/camera_pose(nav_msgs/Odometry)訊息,child_frame_id 填這個名字。
+    # 純粹是個標籤,不影響運算,但建議取個看得出來是相機的名字。
+    camera_frame: "zed_camera_link"   # 預設值:"camera_frame"
+
+    # 是否把 3D 位姿投影壓成 2D(只留 x/y 平移 + 繞 Z 軸旋轉)。地面機器人搭配 nav2 這種
+    # 2D 導航堆疊時通常會想開 true;先留 false(3D,函式庫原始預設值),等實際確定要接
+    # 2D 導航再改。
+    odom2d: false                     # 預設值:false
+
+    # 是否額外發布所有關鍵幀的 3D 位置(~/keyframes、~/keyframes_2d,geometry_msgs/PoseArray),
+    # 拿來在 RViz 裡看地圖建構狀況很有用,幾乎沒什麼額外算力負擔,先開著。
+    publish_keyframes: true           # 預設值:true
+
+    # 查 camera_optical_frame -> odom_frame 的 TF 時,往回容忍多少秒的時間差
+    # (時間戳略有落差時,TF buffer 還能查到多久以前的資料)。
+    transform_tolerance: 0.5          # 預設值:0.5
+
+    # 左右影像用 ApproximateTime(近似時間戳,容忍一點誤差)還是 ExactTime(要求時間戳完全一致)
+    # 做同步。ZED 官方 wrapper 本身在硬體層就已經同步好左右眼,一般用預設的 false(Approximate)
+    # 就夠,除非之後發現同步有問題才改 true。
+    use_exact_time: false             # 預設值:false
+
+    # 影像編碼格式,留空字串代表用訊息本身 sensor_msgs/Image 帶的 encoding 欄位,
+    # 一般不用手動指定。
+    encoding: ""                      # 預設值:""(自動)

@@ -1,0 +1,87 @@
+# ZED 雙目相機 —— stella_vslam 演算法設定(部署版)。
+#
+# 這份是 ../../configs/ZED_stereo.yaml(本地端核心算法測試用的範本)的部署用副本 ——
+# ROS2 套件 install 之後會被複製進 install/vslam_bringup/share/vslam_bringup/config/,
+# 沒辦法回頭引用套件外的檔案,所以這裡要有自己獨立的一份。
+#
+# 兩份目前內容一樣,只是用途不同:
+#   configs/ZED_stereo.yaml            本地端用 stella_vslam_examples 的執行檔測(不透過 ROS2)
+#   vslam_bringup/config/zed_stereo_vslam.yaml   實際部署,ROS2 launch 檔用 -c 讀這份
+# 等真的量到 ZED 實際校正值時,兩份記得一起更新,或至少確定部署用的這份是最新的。
+#
+# 數值目前是佔位符,部署前一定要換成你那台 ZED 的實際校正參數。怎麼拿到真實數值、
+# 完整背景說明見 ../../docs/zed_stereo.md。
+
+Camera:
+  name: "ZED stereo (deployed)"
+  setup: "stereo"
+  model: "perspective"
+
+  # === 下面四個換成你自己 ZED 的實際數值 ===
+  # 來源可以是 ZED SDK 的 getCameraInformation().camera_configuration.calibration_parameters，
+  # 或是官方依序號提供的 .conf 校正檔（見 docs/zed_stereo.md），對應解析度那個 section
+  # （例如 [LEFT_CAM_HD]）裡的 fx/fy/cx/cy。
+  fx: 700.0 # TODO
+  fy: 700.0 # TODO
+  cx: 640.0 # TODO：通常約影像寬度一半
+  cy: 360.0 # TODO：通常約影像高度一半
+
+  # ZED SDK / zed-ros2-wrapper 輸出的是已經 rectified 的影像，理論上沒有殘餘畸變，維持 0 即可
+  k1: 0.0
+  k2: 0.0
+  p1: 0.0
+  p2: 0.0
+  k3: 0.0
+
+  # focal_x_baseline = fx * baseline（單位：公尺）
+  # baseline 從 .conf 檔 [STEREO] 段的 Baseline 欄位取得，注意那邊單位是「毫米」，
+  # 記得先除以 1000 換算成公尺再乘 fx。
+  # 範例：ZED 2i 的 baseline 出廠值約 120mm，若 fx = 700，則 focal_x_baseline ≈ 700 * 0.12 = 84.0
+  focal_x_baseline: 84.0 # TODO
+  depth_threshold: 40
+
+  fps: 30.0 # TODO：換成 zed-ros2-wrapper 實際發布的 fps
+  cols: 1280 # TODO：換成實際發布解析度的寬（例如 720p 模式是 1280）
+  rows: 720 # TODO：換成實際發布解析度的高（例如 720p 模式是 720）
+
+  color_order: "RGB"
+
+# 以下區塊跟本地端測試版一致，是驗證過可動的預設值，部署後如果精度/穩定度需要調整，
+# 參考 ../../docs/tunable_parameters.md 系統性地一個一個試，別急著同時改很多個。
+
+Preprocessing:
+  min_size: 800
+
+Feature:
+  name: "default ORB feature extraction setting"
+  scale_factor: 1.2
+  num_levels: 8
+  ini_fast_threshold: 20
+  min_fast_threshold: 7
+
+Mapping:
+  backend: "g2o"
+  baseline_dist_thr: 0.11
+  redundant_obs_ratio_thr: 0.9
+  erase_temporal_keyframes: false
+  num_temporal_keyframes: 15
+
+Tracking:
+  backend: "g2o"
+  enable_temporal_keyframe_only_tracking: false
+  margin_last_frame_projection: 10.0
+
+KeyframeInserter:
+  wait_for_local_bundle_adjustment: false
+
+Relocalizer:
+  search_neighbor: true
+
+LoopDetector:
+  backend: "g2o"
+
+Initializer:
+  min_num_triangulated_pts: 100
+
+System:
+  map_format: "msgpack"
