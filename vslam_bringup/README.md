@@ -4,11 +4,14 @@
 實際運算由 [`stella_vslam_ros`](../stella_vslam_ros/)(submodule)提供,這個套件單純負責「組裝參數、
 把相機 topic 接起來、設定 TF」,跟 `ros2-web-app` 那類專案裡常見的 `*_bringup` 套件角色一樣。
 
-✅ **已經在真正的 ROS2 Jazzy 環境驗證過**:`colcon_build.sh` 在一個實際跑著的 ROS2 Jazzy 容器裡從乾淨
-狀態跑過,`g2o`/`stella_vslam`/`stella_vslam_ros`/`vslam_bringup` 四個套件全部編譯成功,
-`ros2 launch vslam_bringup stereo_vslam.launch.py --show-args` 也確認 launch 檔跟參數都正常。過程中
-連帶修掉 `stella_vslam_ros` 兩個真實 bug(ament 環境 hook 重複註冊、`cv_bridge.h`→`.hpp` 改名),細節
-見主 `README.md`「已知眉角」。
+✅ **已經在真正的 ROS2 Jazzy 環境驗證過,而且是真的啟動節點,不是只看 `--show-args`**:`colcon_build.sh`
+在一個實際跑著的 ROS2 Jazzy 容器裡從乾淨狀態跑過,四個套件全部編譯成功,`ros2 launch vslam_bringup
+stereo_vslam.launch.py`(拿掉 `--show-args`,真的執行)也確認 `run_slam` 節點會正常啟動、載入設定跟
+詞彙檔、啟動 SLAM 各模組,持續執行不會當掉(還沒接相機,只驗證到「啟動成功、等待影像」)。過程中連帶
+修掉 `stella_vslam_ros` 四個真實 bug——ament 環境 hook 重複註冊、`cv_bridge.h`→`.hpp` 改名,以及一個
+**只有真的啟動節點才會踩到**的:自訂的 `-r`/`--rectify` 參數跟 ROS2 自己的 `-r`/`--remap` 撞名,
+雙目模式的 topic remap 會誤觸發 rectify、讀取一個故意沒有的 YAML 區塊直接把節點弄死。細節見主
+`README.md`「已知眉角」。
 
 還沒驗證的只剩「接上真的 ZED 相機」這塊——編譯跟 launch 檔本身沒問題,但實際影像 topic 名稱、TF 設定
 都還是紙上規劃,要等實體相機/`zed-ros2-wrapper` 到位才能確認,具體是下面這 3 個地方:
