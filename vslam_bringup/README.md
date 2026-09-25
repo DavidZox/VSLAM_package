@@ -10,8 +10,19 @@
 連帶修掉 `stella_vslam_ros` 兩個真實 bug(ament 環境 hook 重複註冊、`cv_bridge.h`→`.hpp` 改名),細節
 見主 `README.md`「已知眉角」。
 
-還沒驗證的只剩「接上真的 ZED 相機」這塊(見下面「已知限制」)——編譯跟 launch 檔本身沒問題,但實際
-影像 topic 名稱、TF 設定都還是紙上規劃,要等實體相機/`zed-ros2-wrapper` 到位才能確認。
+還沒驗證的只剩「接上真的 ZED 相機」這塊——編譯跟 launch 檔本身沒問題,但實際影像 topic 名稱、TF 設定
+都還是紙上規劃,要等實體相機/`zed-ros2-wrapper` 到位才能確認,具體是下面這 3 個地方:
+
+## 實際接 ZED 相機運作前,還有 3 個地方要填
+
+編譯、部署機制都已經驗證過沒問題,但不是空的就能直接接真的相機用——這 3 個檔案裡的值目前是佔位符或
+未驗證的猜測,要實際有相機/`zed-ros2-wrapper` 後才能填真的:
+
+| 檔案 | 現在的狀態 | 你要做的事 |
+|---|---|---|
+| `config/zed_stereo_vslam.yaml` | `fx`/`fy`/`cx`/`cy`/`focal_x_baseline`/`cols`/`rows`/`fps` 全部是佔位符(標 `# TODO`) | 拿到實體 ZED 後,照 `../docs/zed_stereo.md` 步驟填入真實校正值 |
+| `launch/stereo_vslam.launch.py` 的 `left_image_topic`/`right_image_topic` 預設值 | 常見 `zed-ros2-wrapper` 命名慣例,**沒有實際裝過 zed-ros2-wrapper 驗證過** | 裝好 `zed-ros2-wrapper` 後,自己 `ros2 topic list` 核對真實 topic 名稱 |
+| `config/vslam_ros_params.yaml` 的 `odom_frame`/`map_frame`/`robot_base_frame` | ROS2 常見慣例值,不是照實際機器人 TF 樹填的 | 真的要接上機器人平台時,跟對方的 TF 樹核對 |
 
 ## 為什麼會有這個套件(跟 stella_vslam_ros 差在哪)
 
@@ -41,12 +52,8 @@
    `rosdep install --from-paths ../src --ignore-src -r -y`。
 2. **要有 ZED 影像來源**——目前規劃是用 Stereolabs 官方
    [`zed-ros2-wrapper`](https://github.com/stereolabs/zed-ros2-wrapper),發布已經 rectify 過的左右
-   影像 topic(見 `../docs/zed_stereo.md` 的建議路)。**這台機器還沒裝過**,`launch` 檔裡預設的 topic
-   名稱(`/zed/zed_node/left/image_rect_color` 等)是 wrapper 常見慣例,不是實測過的——部署前務必自己
-   `ros2 topic list` 核對,不要照抄。
-3. **ZED 校正參數**——`config/zed_stereo_vslam.yaml` 目前 `fx`/`fy`/`cx`/`cy`/`focal_x_baseline`/
-   `cols`/`rows`/`fps` 都是佔位符(標 `# TODO`),真的有 ZED 相機後,照 `../docs/zed_stereo.md` 的步驟
-   填入實際數值。
+   影像 topic(見 `../docs/zed_stereo.md` 的建議路)。裝好之後要核對的細節見下面「實際接 ZED 相機運作
+   前」那張表。
 
 ## 用法(等前提都滿足之後)
 
@@ -88,10 +95,7 @@ ros2 launch vslam_bringup stereo_vslam.launch.py \
 
 ## 已知限制 / 待辦
 
-- [ ] `zed-ros2-wrapper` 還沒裝過,`launch` 檔預設的 topic 名稱是常見慣例,不是實測結果
-- [ ] `config/zed_stereo_vslam.yaml` 的相機校正參數是佔位符,等實體 ZED 到手才能填真實值
+- [ ] 上面「實際接 ZED 相機運作前」那 3 個地方(校正參數、topic 名稱、TF frame 名稱)都還沒有實體
+      相機/`zed-ros2-wrapper` 可以核對
 - [ ] 還沒決定要不要把 `zed-ros2-wrapper` 也用同一種 symlink 方式併進 `../src/`,或是併入
       `ros2-web-app` 既有 workspace(只有紙上規劃,見主 `README.md`「未來部署方式」章節)
-- [ ] `vslam_ros_params.yaml` 的 `odom_frame`/`map_frame`/`robot_base_frame` 目前是 ROS2 常見慣例值,
-      真的要接上機器人平台(例如 `ros2-web-app` 既有節點)時要跟對方的 TF 樹對過,不能假設現在填的
-      名字就是對的
