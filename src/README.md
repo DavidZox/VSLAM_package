@@ -15,6 +15,48 @@ src/vslam_bringup      -> ../vslam_bringup
 這條路徑打開的檔案,跟用 `g2o/xxx.cpp` 打開的,是完全同一個檔案,改其中一邊,另一邊也會跟著變,因為
 它們本來就是同一個檔案,只是有兩條不同的路徑可以走到它。
 
+## symlink 是怎麼設定的
+
+**沒有設定檔**,建立 symlink 純粹是下一個指令,不需要先編輯任何檔案:
+
+```bash
+ln -s ../g2o src/g2o
+```
+
+執行這一行的當下,系統就直接在 `src/` 資料夾裡建立了一個新的 symlink 項目(名字叫 `g2o`,指向
+`../g2o`),指令跑完這件事就完成了,不會有「先寫設定檔、再套用設定」這兩個步驟。
+
+跟你比較熟悉的 git submodule 比較一下,會更清楚差在哪:
+
+| 情境 | 怎麼設定 |
+|---|---|
+| git submodule | 先編輯 `.gitmodules`(一份文字檔),再跑 `git submodule update` 讓它生效——分兩步,**有設定檔** |
+| symlink | 直接跑 `ln -s 目標 名稱` 這一個指令——一步就完成,**沒有設定檔** |
+
+`src/` 底下這四個 symlink 就是這樣建立的:
+
+```bash
+ln -s ../g2o src/g2o
+ln -s ../stella_vslam src/stella_vslam
+ln -s ../stella_vslam_ros src/stella_vslam_ros
+ln -s ../vslam_bringup src/vslam_bringup
+```
+
+之後要建、改、刪,也都是直接下指令,不會去改某個檔案:
+
+```bash
+ln -s ../g2o src/g2o        # 建立
+rm src/g2o                   # 刪除(只刪捷徑本身,../g2o 完全不受影響)
+ln -sf ../新資料夾 src/g2o   # 改指向(-f 是覆蓋既有的)
+```
+
+想知道某個 symlink 目前指去哪,可以用 `readlink`(直接讀出它自己存的目標路徑,不用去查任何設定檔):
+
+```bash
+readlink src/g2o
+# ../g2o
+```
+
 ## 所以我的原始碼到底在哪裡、要在哪裡改
 
 **只有一份,在 `VSLAM_package` 根目錄底下**(`g2o/`、`stella_vslam/`、`stella_vslam_ros/`、
