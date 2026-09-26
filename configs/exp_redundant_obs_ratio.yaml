@@ -1,6 +1,10 @@
-# 實驗:baseline_dist_thr_ratio 從 0.02 調大到 0.25
-# 預期:三角化新地標時，要求的相機移動量（相對場景深度的比例）變嚴格 → 新地標生成變保守，
-#       地圖點數量變少、變稀疏，但每個點的深度應該比較可靠。
+# 實驗:redundant_obs_ratio_thr 從 0.9 調小到 0.5
+# 預期:local_map_cleaner 會檢查每個共視關鍵幀，算出它的觀測裡有多少比例跟其他關鍵幀重複
+#       (num_redundant_obs / num_valid_obs)，只要這個比例 >= redundant_obs_ratio_thr 就會被判定
+#       「多餘」而刪除。門檻從 0.9 降到 0.5 等於審核變嚴格：只要有一半以上觀測重複就砍，
+#       關鍵幀會被清得更兇、留下的關鍵幀之間空間分佈更稀疏——地圖更精簡、mapping/local BA
+#       計算量下降，但可用來做 loop detection/relocalization 候選比對的關鍵幀庫也跟著變薄，
+#       遇到需要密集關鍵幀支援的場景可能受影響。
 
 # TUM RGBD monocular model for 01
 
@@ -42,7 +46,7 @@ Preprocessing:
 #================#
 
 Feature:
-  name: "exp_baseline_ratio: baseline_dist_thr_ratio 0.02 -> 0.25"
+  name: "exp_redundant_obs_ratio: redundant_obs_ratio_thr 0.9 -> 0.5"
   scale_factor: 1.2
   num_levels: 8
   ini_fast_threshold: 20
@@ -53,8 +57,8 @@ Feature:
 #====================#
 
 Mapping:
-  baseline_dist_thr_ratio: 0.25
-  redundant_obs_ratio_thr: 0.9
+  baseline_dist_thr_ratio: 0.02
+  redundant_obs_ratio_thr: 0.5
   num_covisibilities_for_landmark_generation: 20
   num_covisibilities_for_landmark_fusion: 20
 

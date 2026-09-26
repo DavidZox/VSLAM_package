@@ -1,6 +1,11 @@
-# 實驗:baseline_dist_thr_ratio 從 0.02 調大到 0.25
-# 預期:三角化新地標時，要求的相機移動量（相對場景深度的比例）變嚴格 → 新地標生成變保守，
-#       地圖點數量變少、變稀疏，但每個點的深度應該比較可靠。
+# 實驗:num_covisibilities_for_landmark_fusion 從 20 調小到 5
+# 預期:mapping_module 每插入一個新關鍵幀後，會取它的前 N 個共視關鍵幀，檢查目前關鍵幀跟這些
+#       鄰居之間有沒有「同一個實體點被拆成多個地標」的重複觀測，並融合成一個
+#       (fuse_landmark_duplication)。N 從 20 降到 5，檢查範圍變小、計算變快，但漏抓到的重複
+#       地標會變多，地圖會累積更多冗餘地標點；連帶影響 local BA 精度(同一個 3D 點的觀測被拆到
+#       不同地標，等於部分約束沒被用上)，也會讓 redundant_obs_ratio_thr(依賴地標觀測次數計算
+#       冗餘度)判斷得不準——這個參數跟 redundant_obs_ratio_thr 是連動的，見
+#       exp_redundant_obs_ratio.yaml。
 
 # TUM RGBD monocular model for 01
 
@@ -42,7 +47,7 @@ Preprocessing:
 #================#
 
 Feature:
-  name: "exp_baseline_ratio: baseline_dist_thr_ratio 0.02 -> 0.25"
+  name: "exp_num_covis_landmark_fusion: num_covisibilities_for_landmark_fusion 20 -> 5"
   scale_factor: 1.2
   num_levels: 8
   ini_fast_threshold: 20
@@ -53,10 +58,10 @@ Feature:
 #====================#
 
 Mapping:
-  baseline_dist_thr_ratio: 0.25
+  baseline_dist_thr_ratio: 0.02
   redundant_obs_ratio_thr: 0.9
   num_covisibilities_for_landmark_generation: 20
-  num_covisibilities_for_landmark_fusion: 20
+  num_covisibilities_for_landmark_fusion: 5
 
 #===========================#
 # PangolinViewer Parameters #

@@ -1,6 +1,9 @@
-# 實驗:baseline_dist_thr_ratio 從 0.02 調大到 0.25
-# 預期:三角化新地標時，要求的相機移動量（相對場景深度的比例）變嚴格 → 新地標生成變保守，
-#       地圖點數量變少、變稀疏，但每個點的深度應該比較可靠。
+# 實驗:num_covisibilities_for_landmark_generation 從 20 調小到 5
+# 預期:mapping_module 每插入一個新關鍵幀，會取它的前 N 個共視關鍵幀(看得到同一批地標最多的
+#       關鍵幀)，逐一嘗試三角化新地標(create_new_landmarks)。N 從 20 降到 5，代表每次只跟
+#       最相鄰的 5 個關鍵幀嘗試配對——BoW/robust matching + 三角化的次數變少，建圖速度變快、
+#       CPU 負擔變輕；但可以互相三角化的關鍵幀組合也變少，尤其關鍵幀之間 baseline 較小、
+#       需要多組配對才找得到足夠三角化角度的情況下，新地標生成率會下降、地圖點密度變低。
 
 # TUM RGBD monocular model for 01
 
@@ -42,7 +45,7 @@ Preprocessing:
 #================#
 
 Feature:
-  name: "exp_baseline_ratio: baseline_dist_thr_ratio 0.02 -> 0.25"
+  name: "exp_num_covis_landmark_generation: num_covisibilities_for_landmark_generation 20 -> 5"
   scale_factor: 1.2
   num_levels: 8
   ini_fast_threshold: 20
@@ -53,9 +56,9 @@ Feature:
 #====================#
 
 Mapping:
-  baseline_dist_thr_ratio: 0.25
+  baseline_dist_thr_ratio: 0.02
   redundant_obs_ratio_thr: 0.9
-  num_covisibilities_for_landmark_generation: 20
+  num_covisibilities_for_landmark_generation: 5
   num_covisibilities_for_landmark_fusion: 20
 
 #===========================#

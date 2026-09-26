@@ -1,6 +1,8 @@
-# 實驗:baseline_dist_thr_ratio 從 0.02 調大到 0.25
-# 預期:三角化新地標時，要求的相機移動量（相對場景深度的比例）變嚴格 → 新地標生成變保守，
-#       地圖點數量變少、變稀疏，但每個點的深度應該比較可靠。
+# 實驗:ini_fast_threshold 從 20 調大到 100
+# 預期:orb_extractor 對每個網格先用 ini_fast_threshold 跑一次 FAST 角點偵測，門檻拉高後，
+#       第一輪能通過的強角點變少，更多網格會觸發「補救機制」改用 min_fast_threshold(7)重跑一次；
+#       靠補救撿回來的角點響應值(response)偏弱，整體特徵點數量不會差太多(有補救機制保底)，
+#       但特徵品質分佈會往弱角點偏移，追蹤穩定度可能因此下降。
 
 # TUM RGBD monocular model for 01
 
@@ -42,10 +44,10 @@ Preprocessing:
 #================#
 
 Feature:
-  name: "exp_baseline_ratio: baseline_dist_thr_ratio 0.02 -> 0.25"
+  name: "exp_ini_fast_threshold: ini_fast_threshold 20 -> 100"
   scale_factor: 1.2
   num_levels: 8
-  ini_fast_threshold: 20
+  ini_fast_threshold: 100
   min_fast_threshold: 7
 
 #====================#
@@ -53,7 +55,7 @@ Feature:
 #====================#
 
 Mapping:
-  baseline_dist_thr_ratio: 0.25
+  baseline_dist_thr_ratio: 0.02
   redundant_obs_ratio_thr: 0.9
   num_covisibilities_for_landmark_generation: 20
   num_covisibilities_for_landmark_fusion: 20
