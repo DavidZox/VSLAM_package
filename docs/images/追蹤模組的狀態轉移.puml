@@ -1,0 +1,78 @@
+@startuml
+' --- 樣式精準控制 ---
+skinparam RectangleWidthMax 360
+skinparam ranksep 55
+skinparam nodesep 65
+skinparam shadowing false
+skinparam defaultFontName "Microsoft JhengHei"
+
+title 追蹤模組 (tracking_module) 狀態機：每一幀進來依 tracker_state_t 決定做什麼
+
+rectangle State1 #D1E5F0 [
+  **1. Initializing（初始化）**
+  * 系統剛啟動，或被 reset 之後的狀態。
+  * 雙目：只要這一幀有效深度的特徵點數
+    ≥ min_num_triangulated_pts（ZED 設定 100），
+    就直接用這一幀建出第一個關鍵幀＋初始地標。
+  * 不像單目需要等兩幀有足夠視差。
+]
+
+rectangle State2 #D5E8D4 [
+  **2. Tracking（正常追蹤）**
+  * 先用等速度運動模型投影匹配，失敗改用 BoW 匹配。
+  * track_local_map：對照共視關鍵幀的地標再精修位姿。
+  * 成功且符合條件 → 插入新關鍵幀交給 Mapping。
+  * **唯一會輸出位姿、會新增關鍵幀的狀態。**
+]
+
+rectangle State3 #F8CECC [
+  **3. Lost（追蹤丟失）**
+  * 這一幀追蹤失敗（匹配點不足等）。
+  * 下一幀開始改走 relocalizer：
+    FBoW 找候選關鍵幀 → PnP + RANSAC → g2o 精修。
+  * 丟失期間不輸出位姿、不新增關鍵幀。
+]
+
+rectangle Reset #FFF2CC [
+  **系統重置 (reset)**
+  * 清空地圖、關鍵幀、BoW 資料庫。
+  * 回到 Initializing 重新建圖。
+]
+
+State1 -[#009933,bold]down-> State2 : 有效深度點數足夠\n(初始化成功)
+State1 -right-> State1 : 點數不足，下一幀再試
+
+State2 -right-> State2 : 追蹤成功
+State2 -[#CC0000,bold]down-> State3 : **追蹤失敗**
+
+State3 -[#009933,bold]up-> State2 : <color:#000>**重定位成功**</color>\n(自動 relocalizer 或 /initialpose)
+State3 -down-> State3 : 重定位失敗，下一幀再試
+
+State2 -[#CC6600,bold]left-> Reset : <color:#000>**初始化後 5 秒內就丟失**</color>\n(init_retry_threshold_time)
+Reset -up-> State1
+
+note right of State3
+  **兩種重定位方式：**
+  1. 自動：enable_auto_relocalization
+     （預設開），每幀都試。
+  2. 手動：對 /initialpose 發一個
+     PoseWithCovarianceStamped，
+     系統會找附近的關鍵幀對齊。
+end note
+
+note left of Reset
+  **為什麼要重置：**
+  剛初始化就丟失，代表初始地圖
+  品質太差，與其硬救不如重來；
+  超過 5 秒才丟失就改走重定位，
+  保留已經建好的地圖。
+end note
+
+note bottom of State3
+  **定位模式（--disable-mapping）**
+  狀態機一樣，差別只在 Tracking
+  不會再插入新關鍵幀，Lost 後
+  完全靠載入地圖的關鍵幀重定位。
+end note
+
+@enduml

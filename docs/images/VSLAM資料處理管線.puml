@@ -1,0 +1,121 @@
+@startuml
+' --- 樣式精準控制 ---
+skinparam shadowing false
+skinparam defaultFontName "Microsoft JhengHei"
+skinparam ActivityBackgroundColor #FFF8E7
+skinparam ActivityBorderColor #996633
+skinparam NoteBackgroundColor #FFFFE0
+
+title VSLAM 資料處理管線：前景每幀追蹤要即時，建圖與全域優化丟到背景執行緒慢慢做
+
+partition "啟動時（ros2 launch vslam_bringup stereo_vslam.launch.py）" {
+start
+:launch 檔組好參數，啟動 **run_slam**
+-v 詞彙檔、-c zed_stereo_vslam.yaml、--viewer none
+topic remap 到 ZED 左右影像;
+:**① 讀 config**（stella_vslam::config）
+Camera / Feature / Mapping / Tracking 等區塊; <<#FCE5CD>>
+:**② 建立 stella_vslam::system**
+載入 ORB 詞彙檔 orb_vocab.fbow（FBoW）
+建立左右兩個 orb_extractor; <<#FCE5CD>>
+if (有給 -i / --map-db-in？) then (有)
+  :load_map_database() 載入既有地圖
+  （不需要重新初始化）;
+else (沒有)
+  :從空地圖開始，等第一幀初始化;
+endif
+:**③ system::startup()**
+另開兩條背景執行緒：Mapping、Global Optimization; <<#FCE5CD>>
+if (有加 --disable-mapping？) then (有)
+  :關閉 Mapping（定位模式，地圖只讀不寫）;
+endif
+:rclcpp::spin() 開始等影像;
+stop
+}
+
+partition "每收到一組左右影像（stereo::callback）" {
+start
+:message_filters 同步左右影像
+（use_exact_time=false → ApproximateTime）;
+:cv_bridge 轉成 cv::Mat;
+if (有開 --rectify？) then (有)
+  :StereoRectifier 校正
+  （ZED 已輸出校正影像，預設不開）;
+endif
+:**④ feed_stereo_frame()**
+左右影像各開一條執行緒跑 ORB 擷取
+→ match::stereo 立體匹配算出每個特徵點深度; <<#FCE5CD>>
+:**⑤ tracking_module::feed_frame()**
+依狀態機：初始化 / 追蹤 / 重定位
+g2o 做單幀 pose optimization; <<#FCE5CD>>
+if (追蹤成功且需要新關鍵幀？) then (是)
+  :keyframe_inserter 建立關鍵幀
+  丟進 Mapping 的佇列;
+endif
+:**⑥ 發布結果**
+~/camera_pose（Odometry）
+publish_tf=true → map→odom TF
+publish_keyframes=true → ~/keyframes、~/keyframes_2d; <<#FCE5CD>>
+stop
+}
+
+partition "Mapping 背景執行緒（每個新關鍵幀跑一次）" {
+start
+:store_new_keyframe：關鍵幀寫入 map_database;
+:remove_invalid_landmarks：清掉品質不好的新地標;
+:**create_new_landmarks**
+跟前 N 個共視關鍵幀三角化新地標
+（num_covisibilities_for_landmark_generation）; <<#FCE5CD>>
+:**update_new_keyframe**
+跟前 N 個共視關鍵幀融合重複地標
+（num_covisibilities_for_landmark_fusion）; <<#FCE5CD>>
+if (佇列積太多關鍵幀？) then (是)
+  :跳過 local BA（算力不夠時優先保即時）;
+else (否)
+  :**local BA（g2o）**
+  同時優化附近關鍵幀位姿＋地標座標; <<#FCE5CD>>
+endif
+:remove_redundant_keyframes
+（redundant_obs_ratio_thr）;
+:queue_keyframe → 交給 Global Optimization;
+stop
+}
+
+partition "Global Optimization 背景執行緒" {
+start
+:從佇列取出關鍵幀，加入 BoW 資料庫;
+if (detect_loop_candidates：FBoW 找到相似關鍵幀？) then (沒有)
+  :沒有迴圈，等下一個關鍵幀;
+  stop
+else (有)
+endif
+if (validate_candidates：Sim3 幾何驗證通過？) then (不通過)
+  :當作誤判，捨棄;
+  stop
+else (通過)
+endif
+:**correct_loop**
+暫停 Mapping → Sim3 修正共視關鍵幀/地標
+→ **Pose Graph Optimization**（本質圖，g2o）; <<#FCE5CD>>
+:另開執行緒跑 **全域 BA**（loop_bundle_adjuster）
+整張地圖再精修一次;
+note right
+  全域 BA 最慢但最準，
+  跑在背景不擋前景追蹤；
+  中途有新迴圈會中止重跑
+end note
+stop
+}
+
+partition "關閉時" {
+start
+:Ctrl+C → rclcpp::spin() 返回;
+:SLAM->shutdown()：停止背景執行緒;
+if (有給 -o / --map-db-out？) then (有)
+  :save_map_database() 存成 msgpack
+  （下次可用 -i 載入做定位）;
+endif
+stop
+}
+
+@enduml

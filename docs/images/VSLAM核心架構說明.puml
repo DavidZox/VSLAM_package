@@ -1,0 +1,90 @@
+@startuml
+' --- 樣式精準控制 ---
+skinparam RectangleWidthMax 380
+skinparam ranksep 55
+skinparam nodesep 70
+skinparam shadowing false
+skinparam defaultFontName "Microsoft JhengHei"
+
+title VSLAM_package 核心架構：四個套件的分工（colcon 編譯順序 g2o → stella_vslam → stella_vslam_ros → vslam_bringup）
+
+rectangle Camera #F5F5F5 [
+  **ZED 雙目相機（zed-ros2-wrapper，尚未安裝）**
+  * 發布已校正 (rectified) 的左右影像 topic。
+  * 預設假設 /zed/zed_node/left(right)/image_rect_color
+    （未實測，接上相機後要用 ros2 topic list 核對）。
+]
+
+rectangle Bringup #D1E5F0 [
+  **vslam_bringup（自己寫的部署套件）**
+  * launch/stereo_vslam.launch.py：一個指令啟動 run_slam。
+  * 把 ZED topic remap 到 camera/left(right)/image_raw。
+  * config/zed_stereo_vslam.yaml：相機校正＋演算法參數
+    （校正值目前仍是 # TODO 佔位符）。
+  * config/vslam_ros_params.yaml：TF frame、publish_tf 等節點參數。
+  * vocab/orb_vocab.fbow：隨套件安裝，不綁機器絕對路徑。
+]
+
+rectangle RosNode #D5E8D4 [
+  **stella_vslam_ros（ROS2 包裝層，run_slam 節點）**
+  * message_filters 同步左右影像（Approximate/Exact Time）。
+  * cv_bridge 轉成 cv::Mat，丟給 feed_stereo_frame()。
+  * 發布 ~/camera_pose、~/keyframes、~/keyframes_2d，
+    publish_tf=true 時發布 map→odom TF。
+  * 訂閱 /initialpose，可手動指定位姿做重定位。
+]
+
+rectangle Core #FFF2CC [
+  **stella_vslam（核心演算法庫）**
+  * Tracking（主執行緒）：ORB 特徵＋立體匹配、逐幀位姿估計。
+  * Mapping（背景執行緒）：三角化、融合、local BA、關鍵幀清理。
+  * Global Optimization（背景執行緒）：FBoW 迴圈偵測、
+    Sim3 驗證、Pose Graph、全域 BA。
+  * map_database：關鍵幀/地標/共視圖，可存成 msgpack。
+]
+
+rectangle G2O #E1D5E7 [
+  **g2o（圖優化後端）**
+  * 所有最佳化都在這裡解：單幀 pose optimization、
+    local BA、pose graph、全域 BA。
+  * 自己的 fork（DavidZox/g2o，vslam-deploy 分支），
+    修過 Config.cmake.in 的 OpenGL 依賴 bug。
+]
+
+rectangle Downstream #ECECEC [
+  **下游（規劃中）**
+  * RViz 檢視關鍵幀/軌跡。
+  * 導航/機器人平台讀 TF 與 camera_pose
+    （需另有節點發布 odom→base_link）。
+]
+
+Camera -down-> Bringup : 影像 topic
+Bringup -down-> RosNode : 啟動節點＋參數＋topic remap
+RosNode -down-> Core : feed_stereo_frame(left, right, timestamp)
+Core -down-> G2O : 最佳化問題
+Core -[#009933,bold]up-> RosNode : <color:#000>**相機位姿 / 關鍵幀**</color>
+RosNode -[#CC6600,bold]right-> Downstream : <color:#000>**Odometry / PoseArray / TF**</color>
+
+note right of Bringup
+  **只有這個套件是自己的程式碼**，
+  其他三個都是上游 open source
+  的 fork（git submodule），
+  改演算法才需要進去改。
+end note
+
+note right of Core
+  **三條執行緒：**
+  Tracking 每幀都跑、必須即時；
+  Mapping 只處理被選中的關鍵幀；
+  Global Optimization 只在
+  偵測到迴圈時才做重活。
+end note
+
+note left of RosNode
+  **-r 撞名 bug 已修：**
+  原本自訂的 -r/--rectify 會吃掉
+  ROS2 的 -r（topic remap），
+  已拿掉短參數，只留 --rectify。
+end note
+
+@enduml
