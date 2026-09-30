@@ -73,8 +73,15 @@ sudo apt install -y build-essential cmake git libopencv-dev libeigen3-dev libyam
 | 項目 | 怎麼產生 |
 |---|---|
 | `local_install/`、`vocab/` | `./build.sh` |
-| `datasets/rgbd_dataset_freiburg1_xyz/`(約 450 MB,實驗腳本用) | `mkdir -p datasets && curl -L https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_xyz.tgz \| tar -xz -C datasets` |
+| `datasets/rgbd_dataset_freiburg1_xyz/`(約 450 MB,實驗腳本用) | 下面的下載指令 |
 | `pangolin/`、`pangolin_viewer/`(只有 `view_experiment.sh` 開視窗需要) | 見 [`docs/pangolin_viewer.md`](docs/pangolin_viewer.md) |
+
+```bash
+mkdir -p datasets && curl -L https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_xyz.tgz | tar -xz -C datasets
+```
+
+所有腳本(`build.sh`、`colcon_build.sh`、`run_experiment.sh`、`view_experiment.sh`、`env.sh`)都以自己所在的位置
+當專案根目錄,clone 到任何路徑都能直接用,不用改路徑。
 
 參數實驗固定用 TUM RGBD `freiburg1_xyz` 當基準:
 
