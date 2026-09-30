@@ -59,16 +59,20 @@ VSLAM_package/
 ## 本地端測試(不需要 ROS2)
 
 ```bash
-git clone --recurse-submodules https://github.com/DavidZox/VSLAM_package.git && cd VSLAM_package
+git clone --recurse-submodules --shallow-submodules -j4 https://github.com/DavidZox/VSLAM_package.git && cd VSLAM_package
 # 已經用一般 git clone 下載(g2o/、stella_vslam/ 等資料夾是空的)的話,在 VSLAM_package 裡補抓:
-git submodule update --init --recursive
+git submodule update --init --recursive --depth 1 --jobs 4
 
 sudo apt install -y build-essential cmake git libopencv-dev libeigen3-dev libyaml-cpp-dev libsuitesparse-dev libsqlite3-dev
 ./build.sh                    # 編譯到 local_install/,並下載 vocab/orb_vocab.fbow
 ```
 
 `g2o/`、`stella_vslam/`、`stella_vslam_examples/`、`stella_vslam_ros/` 是 submodule,一般 `git clone` 只會建出
-空資料夾,一定要用上面兩種方式之一抓內容。另外這些不進版控,新 clone 的電腦要自己準備:
+空資料夾,一定要用上面兩種方式之一抓內容。`--depth 1`/`--shallow-submodules` 只抓釘住的那個版本、不抓歷史,
+下載量從約 55 MB 降到 6~10 MB,原始碼內容一模一樣;之後如果要在 submodule 裡看歷史或開發,再到該資料夾執行
+`git fetch --unshallow` 補回完整歷史。`--jobs 4`/`-j4` 讓 4 個 submodule 同時下載。
+
+另外這些不進版控,新 clone 的電腦要自己準備:
 
 | 項目 | 怎麼產生 |
 |---|---|
