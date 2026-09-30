@@ -18,6 +18,18 @@
     <exec_depend>stella_vslam_ros</exec_depend>
     <exec_depend>launch</exec_depend>
     <exec_depend>launch_ros</exec_depend>
+    <!-- isaac_stereo_vslam.launch.py:相機靜態 TF、選配的 RViz -->
+    <exec_depend>tf2_ros</exec_depend>
+    <exec_depend>rviz2</exec_depend>
+    <!-- scripts/ 底下的對接/驗證工具 -->
+    <exec_depend>rclpy</exec_depend>
+    <exec_depend>sensor_msgs</exec_depend>
+    <exec_depend>nav_msgs</exec_depend>
+    <exec_depend>geometry_msgs</exec_depend>
+    <exec_depend>python3-numpy</exec_depend>
+    <exec_depend>python3-opencv</exec_depend>
+    <exec_depend>python3-yaml</exec_depend>
+    <exec_depend>python3-matplotlib</exec_depend>
 
     <!--
       雙目影像來源預期是 Stereolabs 官方 zed-ros2-wrapper(套件名稱通常是 zed_wrapper,

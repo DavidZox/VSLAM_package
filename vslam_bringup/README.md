@@ -1,6 +1,6 @@
 # vslam_bringup
 
-雙目(ZED)VSLAM 部署用的 ROS2 **bringup 套件**——只包 launch 檔跟參數 YAML,**不含 SLAM 演算法本身**。
+雙目(ZED)VSLAM 部署用的 ROS2 **bringup 套件**——只包 launch 檔、參數 YAML 跟幾支對接/驗證小工具,**不含 SLAM 演算法本身**。
 實際運算由 [`stella_vslam_ros`](../stella_vslam_ros/)(submodule)提供,這個套件單純負責「組裝參數、
 把相機 topic 接起來、設定 TF」,跟 `ros2-web-app` 那類專案裡常見的 `*_bringup` 套件角色一樣。
 
@@ -14,7 +14,100 @@ stereo_vslam.launch.py`(拿掉 `--show-args`,真的執行)也確認 `run_slam` �
 `README.md`「已知眉角」。
 
 還沒驗證的只剩「接上真的 ZED 相機」這塊——編譯跟 launch 檔本身沒問題,但實際影像 topic 名稱、TF 設定
-都還是紙上規劃,要等實體相機/`zed-ros2-wrapper` 到位才能確認,具體是下面這 3 個地方:
+都還是紙上規劃,要等實體相機/`zed-ros2-wrapper` 到位才能確認,具體是下面「實際接 ZED 相機運作前」那 3 個地方。
+
+## Isaac Sim 機器人對接(2026-09-30 在模擬裡驗證過)
+
+`fih_humanoid_amr` 的 Isaac Sim 場景(`Scene/`)裡,機器人頭上有一顆 ZED X,Isaac 直接發布左右影像跟
+camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、相機 TF、topic 都是從模擬裡量的,不是佔位符。
+觀察到的數值、踩到的問題、每次實驗的結果都記錄在 [`../docs/isaac_sim_integration.md`](../docs/isaac_sim_integration.md)。
+
+### 啟動順序
+
+```bash
+# 1. Isaac Sim(主機):開場景,等 log 出現 "SimControlNode ready"
+~/Gitlab_workspace/fih_humanoid_amr/Scene/run_sim.sh
+
+# 2. 機器人端(amr-base-dev 容器):平常的 start_sim.sh 流程,會先對 /sim_control 送 stop/play 讓模擬開始跑,
+#    再 launch start_sim_and_spawn_IsaacSim.launch.py(TF、odom、AMCL、Nav2 都在這裡)
+
+# 3. VSLAM(這個 repo 的根目錄,主機上執行;沒有 ROS2 的主機用容器跑)
+./ros2_container.sh up        # 第一次:用 amr_base 映像建 vslam-dev 容器,ROS_DOMAIN_ID 讀 amr_base/domain_id.conf
+./ros2_container.sh build     # 第一次或改了程式:容器裡跑 colcon_build.sh
+./ros2_container.sh launch    # = ros2 launch vslam_bringup isaac_stereo_vslam.launch.py,可以接 launch 參數
+./ros2_container.sh stop      # 結束(送 SIGINT,有給 map_db_out / eval_log_dir 的話這時才存檔)
+```
+
+常用的 launch 參數:
+
+| 參數 | 用途 |
+|---|---|
+| `map_db_out:=<檔案>` | 結束時存地圖(msgpack) |
+| `map_db_in:=<檔案> disable_mapping:=true` | 載入地圖只做定位 |
+| `eval_log_dir:=<目錄>` | 結束時存 frame/keyframe 軌跡(TUM)跟每幀追蹤耗時 |
+| `rviz:=true` | 另外開 RViz(`rviz/isaac_vslam.rviz`):真值 `/odom` vs VSLAM 軌跡、關鍵幀、追蹤影像;2D Pose Estimate 送到 `/vslam/initialpose` |
+| `map_parent_frame:=map` | `vslam_map` 改掛在 AMCL 的 `map` 底下(預設掛 `odom`),VSLAM 地圖直接對齊機器人既有地圖 |
+| `publish_tf:=true map_frame:=map` | 讓 VSLAM 接手 `map -> odom`(機器人端這時不能再跑 AMCL / slam_toolbox,否則兩邊搶同一段 TF;這條還沒實測) |
+| `mask:=none` | 不用本體遮罩(只在換了機器人外觀/手臂姿勢、要重拍遮罩前比較用) |
+
+### 這組設定接了什麼
+
+| 項目 | 檔案 | 內容 |
+|---|---|---|
+| 影像 | `launch/isaac_stereo_vslam.launch.py` | `/zed_camera_left/image_raw`、`/zed_camera_right/image_raw`(rgb8、1280x720、RELIABLE) |
+| 內參/基線 | `config/isaac_zedx_stereo.yaml` | fx = fy = 490.667、cx = 640、cy = 360、無畸變;基線 0.11988 m(camera_info 的 P[3] 是 0,從 USD 量);演算法參數跟 `zed_stereo_vslam.yaml` 相同 |
+| 相機 TF | `config/isaac_zedx_camera_tf.yaml` | 機器人 URDF 沒有相機 link,launch 補 `L_HEAD_J2 -> zed_left/right_camera_link -> zed_left/right_camera_frame`(光學座標系) |
+| 本體遮罩 | `config/isaac_zedx_self_mask.png` | 相機看得到機器人自己的雙手,不遮 VSLAM 會以為相機沒在動;`scripts/make_self_mask.py` 產生 |
+| ROS 參數 | `config/isaac_vslam_ros_params.yaml` | 模擬時間、地圖座標系 `vslam_map`(不搶 AMCL 的 `map -> odom`)、地圖原點貼地(`robot_base`)、`odom -> vslam_map` 靜態 TF、CLAHE、ExactTime 同步 |
+| DDS | `config/cyclonedds.xml` | 同一台主機 participant 多,參與者索引上限拉到 100(跟機器人端 devcontainer 設定一樣) |
+
+### 輸出(給後續 SLAM / 定位行為用)
+
+| topic / TF | 型別 | 內容 |
+|---|---|---|
+| `/run_slam/robot_pose` | `nav_msgs/Odometry` | 機器人底盤 `L_BASE_FOOTPRINT` 在 `vslam_map` 的位姿(`vslam_map` 原點 = 建圖當下的底盤,貼地) |
+| `/run_slam/camera_pose` | `nav_msgs/Odometry` | 左相機 `zed_left_camera_link` 在 `vslam_map` 的位姿 |
+| `/run_slam/keyframes`、`/run_slam/keyframes_2d` | `geometry_msgs/PoseArray` | 關鍵幀位置 |
+| `/run_slam/tracking_state` | `std_msgs/String`(transient local) | `Initializing` / `Tracking` / `Lost`,狀態改變時發 |
+| `/run_slam/tracking_image` | `sensor_msgs/Image` | 追蹤到的特徵點畫在(CLAHE 後的)左影像上,有人訂閱才發,每 3 幀一張 |
+| TF `odom -> vslam_map` | 靜態 | 地圖第一筆位姿時,讓 VSLAM 的底盤位姿跟 odom 的重合;之後兩者的差就是 VSLAM 相對 odom 的漂移 |
+
+### 驗證工具(`ros2 run vslam_bringup <工具>`,容器裡用 `./ros2_container.sh run ros2 run ...`)
+
+| 工具 | 用途 |
+|---|---|
+| `camera_info_to_stella_yaml.py` | 從左右 camera_info(+ TF 取基線)印出 stella_vslam 的 Camera 區塊;`-p check:=<yaml>` 比對設定檔,不一致 exit 1。換解析度/場景時先跑這個 |
+| `make_self_mask.py` | 用雙目視差找「一直在 1 m 內」的像素(機器人本體)產生遮罩 PNG,另存預覽圖 |
+| `drive_waypoints.py` | 沿路網節點原地轉向 + 直線開(直接發 `/cmd_vel`,`/odom` 回授),預設繞 a7-a6-a5-a8 矩形一圈 |
+| `vslam_trajectory_recorder.py` | 同時間戳記錄 VSLAM 位姿跟真值(Isaac `/odom` × 相機外參),輸出兩份 TUM 檔 |
+| `evaluate_trajectory.py` | ATE(SE3 對齊)、Sim3 尺度(雙目正確應接近 1)、起點對齊的終點漂移,輸出疊圖;只需要 numpy |
+
+驗證流程(VSLAM 已經在跑):
+
+```bash
+# 終端機 A:記錄(datasets/ 不進版控)
+./ros2_container.sh run ros2 run vslam_bringup vslam_trajectory_recorder.py --ros-args \
+  -p output_dir:=/workspaces/VSLAM_package/datasets/isaac_eval/mytest -p use_sim_time:=true
+# 終端機 B:繞一圈,跑完回終端機 A 按 Ctrl+C
+./ros2_container.sh run ros2 run vslam_bringup drive_waypoints.py
+# 算誤差
+./ros2_container.sh run bash -c "cd datasets/isaac_eval/mytest && ros2 run vslam_bringup evaluate_trajectory.py gt_tum.txt est_tum.txt --plot eval.png"
+```
+
+### 驗證結果
+
+同一條路線(約 12.7–13.4 m、4 個 90° 原地轉向)的即時位姿:
+
+| 設定 | 結果 |
+|---|---|
+| 不遮罩、不做 CLAHE | 被雙手特徵拉住,估計軌跡只在起點 0.4 m 內;Sim3 尺度 2.88、ATE 1.46 m |
+| 遮罩 | 追蹤時 ATE 4.3 cm、尺度 1.07,但 8.8 s 後在素色牆前 tracking lost,之後沒救回 |
+| 遮罩 + CLAHE(= 現在的設定,跑兩次) | 兩次都整圈沒有 lost、回到起點偵測到 loop;ATE 4.6 / 17.1 cm、Sim3 尺度 1.003 / 1.017、只用起點對齊的終點誤差 3.9 / 1.0 cm;追蹤耗時中位數約 37 ms |
+| 載入上面建的地圖只定位 | 第一幀就重定位成功、整圈沒有 lost;相對建圖座標系的絕對誤差 RMSE 5.0 cm(起點 3.7 cm、終點 3.6 cm),平面牆那段也只差 1 cm |
+
+尺度接近 1 代表內參跟基線對。實際使用建議先繞一圈建圖(回到起點觸發 loop closure)存檔,之後載入地圖定位。兩次 ATE 差很多,誤差幾乎都來自 a6 -> a5 那段正對一整面平面素色牆的路(視覺退化,
+會少估前進量),細節、試過的參數(`depth_threshold`、輪式里程計運動先驗都沒有可量測的改善)跟其他限制見
+`../docs/isaac_sim_integration.md`。
 
 ## 實際接 ZED 相機運作前,還有 3 個地方要填
 
@@ -96,9 +189,18 @@ ros2 launch vslam_bringup stereo_vslam.launch.py \
 如果 `vslam_ros_params.yaml` 裡 `publish_tf: true`,還會發布 `map` → `odom` 的 TF(需要另外有節點在發布
 `odom` → `base_link`,例如輪速計,`stella_vslam_ros` 不會自己生出這段)。
 
+fork 版 `stella_vslam_ros` 另外加了 `/run_slam/robot_pose`、`/run_slam/tracking_state`、`/run_slam/tracking_image`
+跟 `map_frame_origin`、`map_parent_frame`、`clahe_clip_limit` 等參數(預設值維持上游行為,說明見
+`../stella_vslam_ros/README.md`),實體 ZED 要用的話參考 `config/isaac_vslam_ros_params.yaml` 的寫法。
+
 ## 已知限制 / 待辦
 
 - [ ] 上面「實際接 ZED 相機運作前」那 3 個地方(校正參數、topic 名稱、TF frame 名稱)都還沒有實體
       相機/`zed-ros2-wrapper` 可以核對
+- [ ] Isaac Sim:相機 TF 是 launch 用靜態 TF 補的,機器人 URDF(`amr_base_sw/urdf/TOTAL_AMR_V1.5_FIH_Hand_0.1t_0.1t.urdf`)
+      加上 ZED X link 之後改 `publish_camera_tf:=false`
+- [ ] Isaac Sim:本體遮罩只對目前的手臂姿勢有效,手臂動了要用 `make_self_mask.py` 重拍
+- [ ] Isaac Sim:要讓 VSLAM 接手 `map -> odom`,機器人端要有「不跑 AMCL / slam_toolbox」的啟動選項,
+      目前的 `start_sim_and_spawn_IsaacSim.launch.py` 兩種模式都會發 `map -> odom`
 - [ ] 還沒決定要不要把 `zed-ros2-wrapper` 也用同一種 symlink 方式併進 `../src/`,或是併入
       `ros2-web-app` 既有 workspace(只有紙上規劃,見主 `README.md`「未來部署方式」章節)

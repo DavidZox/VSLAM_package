@@ -1,0 +1,55 @@
+# stella_vslam_ros run_slam 節點參數 —— Isaac Sim 機器人(amr_base_sw start_sim_and_spawn_IsaacSim.launch.py)版本。
+# 相機/演算法參數在 isaac_zedx_stereo.yaml;實體 ZED 用 vslam_ros_params.yaml。
+#
+# 機器人端 TF 樹(2026-09-30 實測):
+#   map -(AMCL)-> odom -(odom_tf_broadcaster)-> L_BASE_FOOTPRINT -> base_link -> L_TORSO_J1..J4 -> L_HEAD_J1 -> L_HEAD_J2
+# 相機 frame(zed_left_camera_link / zed_left_camera_frame ...)機器人 URDF 沒有,由 isaac_stereo_vslam.launch.py
+# 依 isaac_zedx_camera_tf.yaml 補上。
+
+run_slam:
+  ros__parameters:
+    # Isaac Sim 發 /clock,影像時間戳也是模擬時間
+    use_sim_time: true
+
+    # 機器人端 AMCL 已經在發 map -> odom,這裡再發會搶同一段 TF,所以預設關掉,地圖座標系也另外取名。
+    # 要讓 VSLAM 接手定位時(機器人端不跑 AMCL/slam_toolbox),launch 帶 publish_tf:=true map_frame:=map。
+    publish_tf: false
+    map_frame: "vslam_map"
+    odom_frame: "odom"
+    robot_base_frame: "L_BASE_FOOTPRINT"
+
+    # ~/camera_pose 的 child_frame_id:左眼相機本體(x 朝前),不是光學座標系
+    camera_frame: "zed_left_camera_link"
+
+    # 地圖原點放在「建圖當下的機器人底盤(L_BASE_FOOTPRINT)」:相機裝在 1.29 m 高的頭上,用上游預設的
+    # camera 原點,地圖會懸在半空、還跟著頭的俯仰角傾斜;robot_base 讓 vslam_map 貼地、跟 odom 一樣水平。
+    map_frame_origin: "robot_base"
+
+    # 地圖建立(錨定)那一刻發一個靜態 TF odom -> vslam_map,VSLAM 的輸出就能跟機器人畫在同一棵 TF 樹上
+    # (RViz 固定座標選 map 或 odom 都看得到),又不會跟 AMCL 搶 map -> odom。publish_tf:=true 時自動不發。
+    map_parent_frame: "odom"
+
+    # 另外發 ~/robot_pose(L_BASE_FOOTPRINT 在 vslam_map 的位姿),後續 SLAM/定位行為直接拿這個用
+    publish_robot_pose: true
+
+    # 影像先轉灰階做 CLAHE 再抽特徵。場景牆面/地面是低對比的素色材質,原圖 FAST(門檻 7)在整面牆只抓到約 20 個
+    # 角點,CLAHE 後約 1.2 萬個,不開的話面對牆就追蹤失敗(2026-09-30 實測)。
+    clahe_clip_limit: 3.0
+    clahe_tile_grid_size: 8
+
+    # 地面機器人,之後接 2D 導航時可改 true(只影響 publish_tf 的 map -> odom)
+    odom2d: false
+
+    publish_keyframes: true
+    transform_tolerance: 0.5
+
+    # Isaac 左右影像是同一幀渲染、時間戳完全相同,用 ExactTime 才不會在掉幀時把不同時間的左右影像湊成一對
+    use_exact_time: true
+    encoding: ""
+
+    # 在影像時間戳查 TF 最多等多久(秒,模擬時間)。機器人端 TF 平均延遲約 3 ms、最大約 50 ms。
+    tf_lookup_timeout: 0.1
+
+    # ~/tracking_image:追蹤到的特徵點畫在左影像上,有人訂閱時才發(rqt_image_view 看)
+    publish_tracking_image: true
+    tracking_image_interval: 3

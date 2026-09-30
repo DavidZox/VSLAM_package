@@ -8,6 +8,9 @@
 - [x] 本地端核心算法建好,用 TUM RGBD 資料集驗證過完整 SLAM 流程與精度(APE RMSE ≈ 6 cm)
 - [x] 參數實驗工具 `run_experiment.sh` / `view_experiment.sh`,`configs/` 底下多組單一變數實驗
 - [x] ROS2:`./colcon_build.sh` 在 ROS2 Jazzy 容器一次編完四個套件,`ros2 launch` 實際啟動節點、不會當掉
+- [x] 接上 Isaac Sim 機器人(`fih_humanoid_amr` 場景頭上的 ZED X):內參/基線/相機 TF 從模擬實測,加了本體遮罩跟
+      CLAHE,整圈約 13 m 不 lost、有 loop closure,即時位姿 ATE 4.6~17 cm(兩次)、尺度 1.00~1.02,可存地圖再載入定位
+      (見 [`vslam_bringup/README.md`](vslam_bringup/README.md)「Isaac Sim 機器人對接」、[`docs/isaac_sim_integration.md`](docs/isaac_sim_integration.md))
 - [ ] 還沒接真的 ZED 相機:校正參數、topic 名稱、TF frame 都還是佔位符(見 [`vslam_bringup/README.md`](vslam_bringup/README.md))
 
 ## 架構圖解
@@ -46,13 +49,15 @@
 VSLAM_package/
 ├── build.sh / env.sh        本地端建置(g2o → stella_vslam → stella_vslam_examples → local_install/)
 ├── colcon_build.sh          ROS2 建置(四個套件一次編完 → install/)
+├── ros2_container.sh        主機沒有 ROS2 時:用 amr_base 映像建容器,在裡面 build / launch(Isaac Sim 對接用)
 ├── run_experiment.sh        參數實驗:跑 config、算 APE、存標註影格/影片/軌跡圖
 ├── view_experiment.sh       同一組資料開 PangolinViewer 即時看
 ├── configs/                 baseline.yaml(對照組)+ exp_*.yaml(單一變數實驗)+ ZED_stereo.yaml
-├── docs/                    tunable_parameters.md(~105 個可調參數)、zed_stereo.md、pangolin_viewer.md、images/
+├── docs/                    tunable_parameters.md(~105 個可調參數)、zed_stereo.md、pangolin_viewer.md、
+│                            isaac_sim_integration.md(Isaac Sim 機器人對接筆記)、images/
 ├── src/                     colcon workspace,symlink 指回下面四個資料夾(見 src/README.md)
 ├── g2o/ stella_vslam/ stella_vslam_examples/ stella_vslam_ros/   【submodule,自己的 fork】
-├── vslam_bringup/           自己寫的 ROS2 bringup 套件
+├── vslam_bringup/           自己寫的 ROS2 bringup 套件(ZED / Isaac Sim launch、參數、對接驗證工具)
 └── local_install/ vocab/ datasets/ install/ build/ log/   （不進版控,建置/下載產物）
 ```
 
@@ -115,6 +120,19 @@ ros2 launch vslam_bringup stereo_vslam.launch.py \
 - 定位模式:`run_slam` 加 `-i <地圖檔> --disable-mapping`;建圖結束存檔用 `-o <地圖檔>`
 - 接相機前要填的三件事(校正值、topic 名稱、TF frame)見 [`vslam_bringup/README.md`](vslam_bringup/README.md)
 
+### 接 Isaac Sim 機器人(主機沒有 ROS2,用容器)
+
+Isaac Sim 場景跟機器人端(`amr-base-dev`)都跑起來之後,在這個 repo 根目錄:
+
+```bash
+./ros2_container.sh up && ./ros2_container.sh build   # 第一次
+./ros2_container.sh launch                            # ros2 launch vslam_bringup isaac_stereo_vslam.launch.py
+./ros2_container.sh stop
+```
+
+容器用機器人端的 `amr_base` 映像、`--network host`,`ROS_DOMAIN_ID` 自動讀 `amr_base/domain_id.conf`。
+輸出 `/run_slam/robot_pose`(底盤在 `vslam_map` 的位姿)等,細節見 [`vslam_bringup/README.md`](vslam_bringup/README.md)。
+
 ## 已知眉角
 
 - CMake 4.x 會拒絕舊的 `cmake_minimum_required(3.1)`,需加 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`(已寫進腳本)
@@ -124,6 +142,9 @@ ros2 launch vslam_bringup stereo_vslam.launch.py \
   **自訂 `-r/--rectify` 跟 ROS2 `-r`(remap)撞名導致節點當掉**(已拿掉短參數 `-r`)
 - `ros2 launch ... --show-args` 只印參數、不會啟動節點,驗證一定要真的啟動
 - `colcon.pkg` 的逐套件 cmake 參數在此 colcon 版本不生效,改在 `colcon_build.sh` 一次給全部旗標
+- Isaac Sim 機器人:相機看得到機器人自己的雙手,**一定要用本體遮罩**(不遮的話 VSLAM 以為相機沒在動);
+  場景牆面是低對比素色材質,**要開 CLAHE**(`clahe_clip_limit`)才抓得到特徵;影像 2.7 MB,訂閱要 RELIABLE
+  (BEST_EFFORT 在預設 208 KB socket buffer 下幾乎收不到)。見 [`docs/isaac_sim_integration.md`](docs/isaac_sim_integration.md)
 
 ## 版控說明
 

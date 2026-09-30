@@ -8,7 +8,18 @@ find_package(ament_cmake REQUIRED)
 install(DIRECTORY
   launch
   config
+  rviz
   DESTINATION share/${PROJECT_NAME}
+)
+
+# 對接/驗證用的小工具(ros2 run vslam_bringup <檔名>),說明見 README.md「Isaac Sim 機器人對接」
+install(PROGRAMS
+  scripts/camera_info_to_stella_yaml.py
+  scripts/make_self_mask.py
+  scripts/drive_waypoints.py
+  scripts/vslam_trajectory_recorder.py
+  scripts/evaluate_trajectory.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 # ORB 詞彙檔:colcon_build.sh 會在 build 前自動把它複製/下載到 vocab/(不進版控,見 .gitignore),

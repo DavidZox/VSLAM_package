@@ -1,0 +1,81 @@
+# Isaac Sim 場景(fih_humanoid_amr/Scene 的 fih_humanoid_amrScene)機器人頭上 ZED X 雙目 —— stella_vslam 設定。
+# 給 launch/isaac_stereo_vslam.launch.py 用;實體 ZED 用的是 zed_stereo_vslam.yaml。
+#
+# 數值來源(2026-09-30 在模擬裡實測,不是規格書):
+#   /zed_camera_left/camera_info、/zed_camera_right/camera_info 左右完全相同:
+#     1280 x 720,K = [490.6666, 0, 640; 0, 490.6666, 360; 0, 0, 1],D 全 0(Isaac 渲染影像沒有畸變)
+#     = USD 相機 focalLength 2.208 mm / horizontalAperture 5.76 mm * 1280 px
+#   基線:右眼 camera_info 的 P[3] 是 0(Isaac 每顆相機各自發布,沒把基線填進去),改從場景 USD 幾何量:
+#     CameraLeft -> CameraRight = 0.11988 m(沿相機 +x),focal_x_baseline = 490.6666 * 0.11988 = 58.8211
+#   影像:rgb8,左右同一個模擬時間戳,每幀間隔 1/60 s(模擬時間)。模擬約 0.24 倍實時,牆鐘約 14 Hz。
+# 換解析度/換場景時可以用 ros2 run vslam_bringup camera_info_to_stella_yaml.py 重新量,見 ../README.md。
+
+Camera:
+  name: "Isaac Sim ZED X (fih_humanoid_amrScene, 1280x720)"
+  setup: "stereo"
+  model: "perspective"
+
+  fx: 490.6666348775241
+  fy: 490.6666348775241
+  cx: 640.0
+  cy: 360.0
+
+  k1: 0.0
+  k2: 0.0
+  p1: 0.0
+  p2: 0.0
+  k3: 0.0
+
+  focal_x_baseline: 58.82111
+  # 公尺(這版 stella_vslam 直接跟深度比,不是基線倍數):建關鍵幀時先建最近的 100 個雙目點,之後超過這個深度
+  # 的點就不再用雙目深度直接建點。先沿用 zed_stereo_vslam.yaml 的 40;基線 12 cm 在 10 m 的視差只剩約 6 px,
+  # 大場景可以試著調小,調整方式見 ../../docs/isaac_sim_integration.md。
+  depth_threshold: 40
+
+  # 模擬時間的幀率(時間戳間隔 1/60 s),stella_vslam 的時間相關門檻都用這個時鐘
+  fps: 60.0
+  cols: 1280
+  rows: 720
+
+  color_order: "RGB"
+
+Preprocessing:
+  min_size: 800
+
+Feature:
+  name: "default ORB feature extraction setting"
+  scale_factor: 1.2
+  num_levels: 8
+  # 場景牆面是低對比的素色材質,這裡不降 FAST 門檻,改在 ROS wrapper 先做 CLAHE(isaac_vslam_ros_params.yaml
+  # 的 clahe_clip_limit),原圖門檻 7 整面牆只有約 20 個角點,CLAHE 後約 1.2 萬個
+  ini_fast_threshold: 20
+  min_fast_threshold: 7
+
+Mapping:
+  backend: "g2o"
+  baseline_dist_thr: 0.11
+  redundant_obs_ratio_thr: 0.9
+  erase_temporal_keyframes: false
+  num_temporal_keyframes: 15
+
+Tracking:
+  backend: "g2o"
+  enable_temporal_keyframe_only_tracking: false
+  # stella_vslam 預設 20;官方雙目範例(EuRoC/KITTI)跟 zed_stereo_vslam.yaml 用 10。模擬是 60 fps(模擬時間),
+  # 每幀位移很小,預期差別不大;2026-09-30 模擬整圈驗證用的是 20
+  margin_last_frame_projection: 20.0
+
+KeyframeInserter:
+  wait_for_local_bundle_adjustment: false
+
+Relocalizer:
+  search_neighbor: true
+
+LoopDetector:
+  backend: "g2o"
+
+Initializer:
+  min_num_triangulated_pts: 100
+
+System:
+  map_format: "msgpack"

@@ -1,0 +1,22 @@
+# Isaac Sim 機器人 ZED X 的相機 TF(機器人 URDF 裡沒有,isaac_stereo_vslam.launch.py 用 static_transform_publisher 補上)。
+#
+# 數值從場景 USD 量(VN_Factory_AS3/fih_humanoid_amrScene.usd,2026-09-30):
+#   /World/TOTAL_WHEELED_V1_FIH_Hand_0_1t_0_1t_v2/L_HEAD_J2/ZED_X/base_link/ZED_X/CameraLeft、CameraRight
+#   相對 L_HEAD_J2:左 (0.09, +0.05994, -0.02)、右 (0.09, -0.05994, -0.02),光軸朝 L_HEAD_J2 的 +x,沒有額外旋轉。
+#   URDF 的 L_HEAD_J2 跟 USD 的 L_HEAD_J2 是同一個座標系(TF base_link -> L_HEAD_J2 = (0.003, 0, 0.915),
+#   俯仰 -0.01 rad,跟 USD 一致)。
+# 影像 header.frame_id 是 Isaac 圖裡設的 zed_left_camera_frame / zed_right_camera_frame,VSLAM 把它當光學座標系
+# (x 右、y 下、z 前),所以每顆相機拆成兩層:<name>_link(x 前、y 左、z 上)-> 光學座標系(固定旋轉)。
+#
+# 機器人 URDF 之後如果自己加了相機 link,launch 帶 publish_camera_tf:=false 關掉這裡,避免同一個 frame 有兩個來源。
+
+parent_frame: "L_HEAD_J2"
+cameras:
+  - link_frame: "zed_left_camera_link"
+    optical_frame: "zed_left_camera_frame"
+    xyz: [0.09, 0.05994, -0.02]
+    rpy: [0.0, 0.0, 0.0]
+  - link_frame: "zed_right_camera_link"
+    optical_frame: "zed_right_camera_frame"
+    xyz: [0.09, -0.05994, -0.02]
+    rpy: [0.0, 0.0, 0.0]

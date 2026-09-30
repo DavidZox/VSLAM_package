@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- ros2_container.sh 建的 VSLAM 容器用的 CycloneDDS 設定,內容跟機器人端 amr_base/cyclonedds.devcontainer.xml 相同:
+     不限定網卡(開發機沒有正式機的 end0),參與者索引上限拉到 100。
+     同一台主機上 Isaac Sim + 機器人端 + VSLAM 的 DDS participant 很多,預設上限(10 個左右)不夠用,
+     超過時新節點會起不來(Failed to find a free participant index)。 -->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <Discovery>
+            <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+        </Discovery>
+    </Domain>
+</CycloneDDS>
