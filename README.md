@@ -49,7 +49,7 @@ VSLAM_package/
 ├── run_experiment.sh        參數實驗:跑 config、算 APE、存標註影格/影片/軌跡圖
 ├── view_experiment.sh       同一組資料開 PangolinViewer 即時看
 ├── configs/                 baseline.yaml(對照組)+ exp_*.yaml(單一變數實驗)+ ZED_stereo.yaml
-├── docs/                    tunable_parameters.md(~105 個可調參數)、zed_stereo.md、images/
+├── docs/                    tunable_parameters.md(~105 個可調參數)、zed_stereo.md、pangolin_viewer.md、images/
 ├── src/                     colcon workspace,symlink 指回下面四個資料夾(見 src/README.md)
 ├── g2o/ stella_vslam/ stella_vslam_examples/ stella_vslam_ros/   【submodule,自己的 fork】
 ├── vslam_bringup/           自己寫的 ROS2 bringup 套件
@@ -60,9 +60,21 @@ VSLAM_package/
 
 ```bash
 git clone --recurse-submodules https://github.com/DavidZox/VSLAM_package.git && cd VSLAM_package
+# 已經用一般 git clone 下載(g2o/、stella_vslam/ 等資料夾是空的)的話,在 VSLAM_package 裡補抓:
+git submodule update --init --recursive
+
 sudo apt install -y build-essential cmake git libopencv-dev libeigen3-dev libyaml-cpp-dev libsuitesparse-dev libsqlite3-dev
 ./build.sh                    # 編譯到 local_install/,並下載 vocab/orb_vocab.fbow
 ```
+
+`g2o/`、`stella_vslam/`、`stella_vslam_examples/`、`stella_vslam_ros/` 是 submodule,一般 `git clone` 只會建出
+空資料夾,一定要用上面兩種方式之一抓內容。另外這些不進版控,新 clone 的電腦要自己準備:
+
+| 項目 | 怎麼產生 |
+|---|---|
+| `local_install/`、`vocab/` | `./build.sh` |
+| `datasets/rgbd_dataset_freiburg1_xyz/`(約 450 MB,實驗腳本用) | `mkdir -p datasets && curl -L https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_xyz.tgz \| tar -xz -C datasets` |
+| `pangolin/`、`pangolin_viewer/`(只有 `view_experiment.sh` 開視窗需要) | 見 [`docs/pangolin_viewer.md`](docs/pangolin_viewer.md) |
 
 參數實驗固定用 TUM RGBD `freiburg1_xyz` 當基準:
 

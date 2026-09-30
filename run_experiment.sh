@@ -17,7 +17,7 @@
 # 第一次跑會自動存一份 configs/baseline.yaml（未修改過的官方 TUM_RGBD_mono_1.yaml）當對照組。
 
 set -euo pipefail
-ROOT="/home/david/VSLAM_package"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATASET="$ROOT/datasets/rgbd_dataset_freiburg1_xyz"
 RUN_BIN="$ROOT/stella_vslam_examples/build/run_tum_rgbd_slam"
 

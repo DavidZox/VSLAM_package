@@ -10,7 +10,7 @@
 #   ./view_experiment.sh configs/exp_我的實驗.yaml
 
 set -euo pipefail
-ROOT="/home/david/VSLAM_package"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATASET="$ROOT/datasets/rgbd_dataset_freiburg1_xyz"
 RUN_BIN="$ROOT/stella_vslam_examples/build/run_tum_rgbd_slam"
 
