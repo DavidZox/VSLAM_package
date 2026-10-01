@@ -2,7 +2,7 @@
 
 把 stella_vslam 接到 `fih_humanoid_amr` 的 Isaac Sim 場景(`Scene/`)跟機器人端(`amr_base_sw`)的過程記錄。
 怎麼跑見 [`vslam_bringup/README.md`](../vslam_bringup/README.md)「Isaac Sim 機器人對接」;這份記錄的是「看到了什麼、
-為什麼這樣設」,數值都是 2026-09-30 在 DGX Spark(GB10)上實測的。
+為什麼這樣設」,數值都是 2026-09-30 在 DGX Spark(GB10)上實測的(第 5 節的錄影跟 run9/run10 是 2026-10-01)。
 
 ## 1. 整體架構
 
@@ -18,7 +18,9 @@ Isaac Sim(主機,Scene/run_sim.sh)              amr-base-dev 容器(機器人端
                              static TF:L_HEAD_J2 -> zed_left|right_camera_link -> zed_left|right_camera_frame
                              run_slam(stella_vslam_ros):遮罩 + CLAHE + 雙目追蹤/建圖
                                -> /run_slam/camera_pose、/run_slam/robot_pose、/run_slam/keyframes、
-                                  /run_slam/tracking_state、/run_slam/tracking_image、TF odom -> vslam_map
+                                  /run_slam/tracking_state、TF odom -> vslam_map
+                               -> 視覺化:/run_slam/tracking_image(/compressed)、/run_slam/frame_points、
+                                  /run_slam/map_points、/run_slam/loop_edges(第 5 節)
 ```
 
 主機本身沒有 ROS2(`/opt/ros` 不存在),VSLAM 的 ROS2 部分放在 `vslam-dev` 容器裡編譯執行。容器用機器人端同一個
@@ -71,6 +73,25 @@ tracking lost,之後完全抽不到特徵(`preprocess: cannot extract any keypoi
 (clipLimit 3、8x8)之後是 50 / 12389 / 29348 個。牆面其實有水泥材質紋理,只是對比太低。這是真的表面紋理,
 雙目匹配跟跨幀追蹤都能用,所以在 ROS wrapper 加了 `clahe_clip_limit` 參數(影像轉灰階做 CLAHE 再餵給
 stella_vslam),FAST 門檻維持預設,不去降門檻抓雜訊。
+
+![a7 正對素色牆:原圖跟 CLAHE 後的 FAST 角點(只看手上方的牆面)](images/isaac_clahe_plain_wall.jpg)
+
+2026-10-01 在 a7 正對牆再量一次(上圖,只取手上方的牆面):原圖門檻 20 / 7 是 0 / 3 個角點,CLAHE 後 3 / 1713 個。
+
+**CLAHE 是誰的設定、以後要不要關:**
+
+- 是 **VSLAM 這邊的影像前處理**,不是 stella_vslam 演算法本身,也不是機器人/模擬端的設定:`stella_vslam_ros` 收到
+  影像先轉灰階做 CLAHE,再交給 stella_vslam 抽 ORB 特徵。開關在 `config/isaac_vslam_ros_params.yaml` 的
+  `clahe_clip_limit`(> 0 才做,`clahe_tile_grid_size` 是分格數)。stella_vslam 的 YAML、機器人端、場景都沒動。
+- **隨時可以關**:`clahe_clip_limit: 0.0` 就是上游原本的行為(fork 的預設值就是 0)。實體 ZED 用的
+  `config/vslam_ros_params.yaml` 沒設這個參數,所以實機目前是關的。
+- **地圖跟著設定走**:地圖存的 ORB 描述子是在 CLAHE 後的影像上算的,建圖跟定位要用同一個設定,開著建的地圖
+  關掉 CLAHE 去定位(或反過來)會配不上。
+- **一般情況也可以直接開**:這是 VIO/VSLAM 常見的前處理(VINS-Mono / VINS-Fusion 的 `equalize: 1` 就是同樣
+  clip 3.0、8x8 的 CLAHE,OpenVINS 也有 `histogram_method: CLAHE`)。紋理正常的場景開著影響不大,暗處、逆光、
+  低對比牆面會多抓到特徵;成本很低(這台 1280x720 一張 0.65 ms)。代價是**雜訊也一起放大**:模擬影像沒有雜訊,
+  實機感光元件有,素色區域會多出不穩定的角點(配對/最佳化時會被剔除,但太多會拖累追蹤)。實機建議先錄一段
+  rosbag,開/關各跑一次比 ATE 跟 lost 次數再決定;雜訊明顯就把 `clahe_clip_limit` 降到 1.5~2。
 
 ### 3.3 其他
 
@@ -148,6 +169,8 @@ stella_vslam 標頭,而且排在原始碼前面,只要改過 stella_vslam 的標
 | run6 | run4 + 輪式里程計運動先驗 | 18.5 cm | 1.011 | 24.7 cm | 沒有 | 31.7 cm |
 | run7 | run4 + 輪式里程計運動先驗 | 15.1 cm | 1.017 | 0.1 cm | 有 | 44.4 cm |
 | run8 | 載入 run3 的地圖、`disable_mapping:=true` | 3.5 cm | 1.008 | 3.6 cm(相對建圖座標系) | - | 1.0 cm |
+| run9 | 同 run4,同時錄影片(第 5 節);回到起點後多開一段到 a7 | 17.3 cm | 1.005 | 1.1 cm | 有 | 23.2 cm |
+| run10 | 載入 run9 的地圖定位(從 a7 繞一圈回 a7),同時錄影片 | 13.0 cm | 1.024 | 1.0 cm(相對建圖座標系) | - | 1.6 cm |
 
 - run3 跟 run4 的設定等價(run3 用的暫時設定檔省略的欄位都是預設值),差異就是每次執行的變異;回到起點做完
   loop closure 之後,兩次的終點誤差都在 4 cm 內,事後最佳化的完整軌跡(`frame_trajectory.txt`)ATE 4.2 / 14.9 cm。
@@ -158,8 +181,55 @@ stella_vslam 標頭,而且排在原始碼前面,只要改過 stella_vslam 的標
 - 追蹤耗時(steady clock)中位數約 37 ms、p90 約 55 ms,影像牆鐘間隔約 70 ms,跟得上。
 - `depth_threshold` 跟運動先驗都沒有可量測的改善,沒有採用(運動先驗的程式也拿掉了,不在 stella_vslam 核心留沒
   被證實有用的 API)。
+- run9 回到起點約 7 秒後偵測到迴環(keyframe 1 - keyframe 146)。存下的地圖 156 個關鍵幀、15,796 個地圖點;
+  修正後的關鍵幀 ATE 13.0 cm(最大 31 cm),起終點拉回來了,但 a6 -> a5 那段平面牆的變形沒有完全修掉,
+  俯視圖上那面牆是兩層相距約 0.6 m 的點。
+- run10 在這張地圖裡定位:相對建圖座標系的絕對誤差 RMSE 16.1 cm、**中位數 2.7 cm**,誤差全集中在 a6 轉角到
+  a6 -> a5 前半段(t = 17~32 s,最大 70 cm):a6 轉角短暫 lost 一次(約 0.25 s 牆鐘),重定位接到的正是地圖裡
+  變形的那段。對照 run8(地圖來自 run3,修正後 ATE 4.2 cm,定位 5.0 cm):**定位精度取決於地圖品質**,
+  建圖那次如果平面牆那段變形大,建議重建一次再存。
+- 錄影的那兩次(run9、run10)追蹤耗時中位數 34.5 / 41.6 ms,跟沒錄影時差不多。
+- 這兩次機器人端 AMCL 定位是偏的(跟 Isaac `/odom` 差約 0.85 m、6°;機器人在 09-30 的實驗之後被移動過),
+  所以巡航改用 `drive_waypoints.py -p map_frame:=odom`(odom 就是這個場景的真值座標,跟先前實驗的地圖座標重合),
+  影片底圖用 `--map-to-odom identity`。用 VSLAM 地圖點跟 2D 佔據地圖的牆對齊程度驗證過:用 AMCL 的 `map -> odom`
+  只有 30% 的牆面地圖點落在牆上 10 cm 內,當成 odom 重合是 91%。
 
-## 5. 給後續 SLAM / 定位行為用
+## 5. 視覺化與錄影(相機視角特徵點、俯視全域地圖)
+
+run_slam 另外發幾個視覺化 topic(都是有人訂閱才算,`isaac_vslam_ros_params.yaml` 預設全開):
+
+| topic | 內容 |
+|---|---|
+| `/run_slam/tracking_image`、`/run_slam/tracking_image/compressed` | **原始左影像**(不是 CLAHE 後的灰階)畫上這一幀的特徵點:綠 = 對到地圖點、正在追蹤,橘 = 抽到但沒對到;遮罩區變暗、描白框。每 2 幀一張(模擬時間 30 Hz)。`/compressed` 是 JPEG(約 200 KB),錄影用這個,原始影像 2.7 MB 走 DDS 會掉約 10% |
+| `/run_slam/frame_points` | 這一幀的特徵點用**雙目深度**轉成相機座標的 3D 點,再用估計的位姿放進 `vslam_map`(`tracked` 欄位 1 = 對到地圖點)。定位正確時這些點會落在地圖點上 |
+| `/run_slam/map_points` | 全部地圖點(每 10 幀一次)。迴環修正、BA 之後的位置會反映在下一次發布 |
+| `/run_slam/loop_edges` | 迴環邊(`visualization_msgs/Marker` LINE_LIST,兩端是關鍵幀相機位置) |
+
+`/run_slam/keyframes` 改成依關鍵幀 ID 排序,連起來就是關鍵幀軌跡(迴環修正後整條會動)。`frame_points` 需要每個
+特徵點的雙目深度,這在 stella_vslam 內部(`tracker_` 是 private),所以在 stella_vslam fork 的 `frame_publisher`
+多帶出 `get_depths()`(`system::feed_frame` 把 `frm.frm_obs_.depths_` 一起傳進去,參數有預設值,不影響其他呼叫)。
+
+錄影片用兩支工具(錄跟渲染分開,渲染可以重跑、調畫面不用再跑一次模擬):
+
+1. `vslam_viz_recorder.py`:訂閱上面的 topic、`/run_slam/robot_pose`、真值 `/odom`、TF(`odom -> vslam_map`、
+   `map -> odom`)、機器人 2D 佔據地圖 `/map`,存成 JPEG / npy / TUM 文字檔(一次 113 秒模擬時間的建圖約 620 MB)。
+2. `render_vslam_video.py`:離線(numpy + OpenCV + Pillow,不需要 ROS)輸出
+   `camera.mp4`(相機視角 + 特徵點)、`topdown.mp4`(俯視全域地圖)、`side_by_side.mp4`(兩者並排 + 說明)、
+   `topdown_final.png`。H.264,30 fps = 實際速度(模擬時間)。
+   - 建圖模式:地圖點一路累積(深灰 = 牆/物體,淺灰 = 地面)、藍色關鍵幀軌跡、紅色即時位姿、黑色虛線真值。
+     即時位姿不會被事後修正、關鍵幀會:迴環前兩條重疊(藍蓋住紅),偵測到迴環(橫幅)後藍線連同地圖點一起被拉回
+     真值附近,露出來的紅線就是修正前的估計。run9 這次關鍵幀最多移動 29.5 cm、平均 10.5 cm(位姿圖最佳化 + loop BA)。
+   - 純定位模式:灰色是載入的地圖,綠/橘是這一幀的特徵點轉 3D 後放進地圖的位置,對得上牆面的地圖點就代表定位
+     正確;標題列即時顯示跟真值的差。重定位、短暫 lost 都有橫幅。
+   - 底圖是機器人的 2D 佔據地圖(換到 `vslam_map`),可以直接看 VSLAM 的牆跟 2D 地圖的牆有沒有對上。
+
+![建圖:回到起點偵測到迴環,關鍵幀軌跡(藍)被拉回真值(黑虛線),露出來的紅線是修正前的即時估計](images/isaac_video_mapping_loop.jpg)
+![純定位:這一幀的特徵點轉 3D(綠)落在左牆的地圖點上](images/isaac_video_localization.jpg)
+
+2026-10-01 錄的影片在 `datasets/isaac_eval/run9_video_mapping/videos/`(建圖)、
+`datasets/isaac_eval/run10_video_localization/videos/`(純定位),不進版控。
+
+## 6. 給後續 SLAM / 定位行為用
 
 ![RViz(rviz:=true):地圖、雷射、VSLAM 關鍵幀(黃)、真值 /odom(綠)vs VSLAM robot_pose(紅)、追蹤影像](images/isaac_vslam_rviz.png)
 
@@ -173,12 +243,14 @@ stella_vslam 標頭,而且排在原始碼前面,只要改過 stella_vslam 的標
 | 把 VSLAM 地圖對齊到機器人既有的 `map` | launch 帶 `map_parent_frame:=map`:第一筆位姿時用 AMCL 當下的估計把 `vslam_map` 掛到 `map` 底下 |
 | 載入地圖後給 VSLAM 重定位提示 | 對 `/vslam/initialpose` 送位姿(RViz `rviz:=true` 的 2D Pose Estimate 就是送這個 topic) |
 
-## 6. 已知限制 / 待辦
+## 7. 已知限制 / 待辦
 
 - 正對平面素色牆的路段會低估前進量、yaw 漂移(3.4 節),目前靠 loop closure 事後修;要穩定的話在下游跟輪式
   里程計融合,或改善場景/手臂姿勢讓相機看得到地面跟立體結構。
 - 本體遮罩只對目前的手臂姿勢有效,手臂動了要用 `make_self_mask.py` 重拍;遮罩是左右影像共用(聯集),會多遮掉
-  一部分其實看得到的地面,之後可以考慮讓 stella_vslam 左右各用一張遮罩。
+  一部分其實看得到的地面,之後可以考慮讓 stella_vslam 左右各用一張遮罩。2026-10-01 錄完 run10 之後,機器人停在
+  a7 時雙手變成往上舉的姿勢,已經不在遮罩裡(錄影那兩次全程都還在遮罩裡,`tracking_image` 看得到);
+  要再跑之前先看一眼 `tracking_image`,手跑出白框就重拍遮罩。
 - 場景的深度相機(`zed_camera_depth`)是從 CameraRight 渲染的,跟真的 ZED(對齊左眼)不同;這次雙目 VSLAM 沒用到。
 - 相機 TF 是 launch 補的靜態 TF,機器人 URDF 加上 ZED X link 後改 `publish_camera_tf:=false`。
 - 模擬只有約 0.24 倍實時,影像牆鐘 14 Hz(模擬時間 60 fps)。VSLAM 每幀約 37 ms(中位數),實機 ZED 30/60 fps

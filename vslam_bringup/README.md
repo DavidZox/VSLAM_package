@@ -45,7 +45,7 @@ camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、�
 | `map_db_out:=<檔案>` | 結束時存地圖(msgpack) |
 | `map_db_in:=<檔案> disable_mapping:=true` | 載入地圖只做定位 |
 | `eval_log_dir:=<目錄>` | 結束時存 frame/keyframe 軌跡(TUM)跟每幀追蹤耗時 |
-| `rviz:=true` | 另外開 RViz(`rviz/isaac_vslam.rviz`):真值 `/odom` vs VSLAM 軌跡、關鍵幀、追蹤影像;2D Pose Estimate 送到 `/vslam/initialpose` |
+| `rviz:=true` | 另外開 RViz(`rviz/isaac_vslam.rviz`):真值 `/odom` vs VSLAM 軌跡、關鍵幀、地圖點、這一幀特徵點的 3D 位置、迴環邊、追蹤影像;2D Pose Estimate 送到 `/vslam/initialpose` |
 | `map_parent_frame:=map` | `vslam_map` 改掛在 AMCL 的 `map` 底下(預設掛 `odom`),VSLAM 地圖直接對齊機器人既有地圖 |
 | `publish_tf:=true map_frame:=map` | 讓 VSLAM 接手 `map -> odom`(機器人端這時不能再跑 AMCL / slam_toolbox,否則兩邊搶同一段 TF;這條還沒實測) |
 | `mask:=none` | 不用本體遮罩(只在換了機器人外觀/手臂姿勢、要重拍遮罩前比較用) |
@@ -58,7 +58,7 @@ camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、�
 | 內參/基線 | `config/isaac_zedx_stereo.yaml` | fx = fy = 490.667、cx = 640、cy = 360、無畸變;基線 0.11988 m(camera_info 的 P[3] 是 0,從 USD 量);演算法參數跟 `zed_stereo_vslam.yaml` 相同 |
 | 相機 TF | `config/isaac_zedx_camera_tf.yaml` | 機器人 URDF 沒有相機 link,launch 補 `L_HEAD_J2 -> zed_left/right_camera_link -> zed_left/right_camera_frame`(光學座標系) |
 | 本體遮罩 | `config/isaac_zedx_self_mask.png` | 相機看得到機器人自己的雙手,不遮 VSLAM 會以為相機沒在動;`scripts/make_self_mask.py` 產生 |
-| ROS 參數 | `config/isaac_vslam_ros_params.yaml` | 模擬時間、地圖座標系 `vslam_map`(不搶 AMCL 的 `map -> odom`)、地圖原點貼地(`robot_base`)、`odom -> vslam_map` 靜態 TF、CLAHE、ExactTime 同步 |
+| ROS 參數 | `config/isaac_vslam_ros_params.yaml` | 模擬時間、地圖座標系 `vslam_map`(不搶 AMCL 的 `map -> odom`)、地圖原點貼地(`robot_base`)、`odom -> vslam_map` 靜態 TF、CLAHE、ExactTime 同步、視覺化 topic |
 | DDS | `config/cyclonedds.xml` | 同一台主機 participant 多,參與者索引上限拉到 100(跟機器人端 devcontainer 設定一樣) |
 
 ### 輸出(給後續 SLAM / 定位行為用)
@@ -67,9 +67,12 @@ camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、�
 |---|---|---|
 | `/run_slam/robot_pose` | `nav_msgs/Odometry` | 機器人底盤 `L_BASE_FOOTPRINT` 在 `vslam_map` 的位姿(`vslam_map` 原點 = 建圖當下的底盤,貼地) |
 | `/run_slam/camera_pose` | `nav_msgs/Odometry` | 左相機 `zed_left_camera_link` 在 `vslam_map` 的位姿 |
-| `/run_slam/keyframes`、`/run_slam/keyframes_2d` | `geometry_msgs/PoseArray` | 關鍵幀位置 |
+| `/run_slam/keyframes`、`/run_slam/keyframes_2d` | `geometry_msgs/PoseArray` | 關鍵幀位姿(依關鍵幀 ID 排序,連起來就是關鍵幀軌跡) |
 | `/run_slam/tracking_state` | `std_msgs/String`(transient local) | `Initializing` / `Tracking` / `Lost`,狀態改變時發 |
-| `/run_slam/tracking_image` | `sensor_msgs/Image` | 追蹤到的特徵點畫在(CLAHE 後的)左影像上,有人訂閱才發,每 3 幀一張 |
+| `/run_slam/tracking_image`(`/compressed`) | `sensor_msgs/Image`(`CompressedImage`) | 原始左影像畫上特徵點:綠 = 對到地圖點,橘 = 沒對到,暗區 = 遮罩;每 2 幀一張,`/compressed` 是 JPEG |
+| `/run_slam/frame_points` | `sensor_msgs/PointCloud2` | 這一幀的特徵點用雙目深度轉 3D、再用估計位姿放進 `vslam_map`(`tracked` = 1 是對到地圖點的) |
+| `/run_slam/map_points` | `sensor_msgs/PointCloud2` | 全部地圖點,每 10 幀一次 |
+| `/run_slam/loop_edges` | `visualization_msgs/Marker` | 迴環邊(兩端關鍵幀的相機位置) |
 | TF `odom -> vslam_map` | 靜態 | 地圖第一筆位姿時,讓 VSLAM 的底盤位姿跟 odom 的重合;之後兩者的差就是 VSLAM 相對 odom 的漂移 |
 
 ### 驗證工具(`ros2 run vslam_bringup <工具>`,容器裡用 `./ros2_container.sh run ros2 run ...`)
@@ -81,6 +84,8 @@ camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、�
 | `drive_waypoints.py` | 沿路網節點原地轉向 + 直線開(直接發 `/cmd_vel`,`/odom` 回授),預設繞 a7-a6-a5-a8 矩形一圈 |
 | `vslam_trajectory_recorder.py` | 同時間戳記錄 VSLAM 位姿跟真值(Isaac `/odom` × 相機外參),輸出兩份 TUM 檔 |
 | `evaluate_trajectory.py` | ATE(SE3 對齊)、Sim3 尺度(雙目正確應接近 1)、起點對齊的終點漂移,輸出疊圖;只需要 numpy |
+| `vslam_viz_recorder.py` | 錄影片用的原始資料:追蹤影像(JPEG)、這一幀 3D 特徵點、地圖點、關鍵幀、迴環邊、VSLAM 位姿、真值、TF、2D 佔據地圖 |
+| `render_vslam_video.py` | 把上面錄的資料離線做成 `camera.mp4`(相機視角 + 特徵點)、`topdown.mp4`(俯視全域地圖)、`side_by_side.mp4`;不需要 ROS |
 
 驗證流程(VSLAM 已經在跑):
 
@@ -94,6 +99,24 @@ camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、�
 ./ros2_container.sh run bash -c "cd datasets/isaac_eval/mytest && ros2 run vslam_bringup evaluate_trajectory.py gt_tum.txt est_tum.txt --plot eval.png"
 ```
 
+### 錄影片(相機視角特徵點 + 俯視全域地圖)
+
+```bash
+# 終端機 A:錄(VSLAM 啟動前後都可以;建圖時 launch 帶 map_db_out,純定位時帶 map_db_in + disable_mapping)
+./ros2_container.sh run ros2 run vslam_bringup vslam_viz_recorder.py --ros-args \
+  -p output_dir:=/workspaces/VSLAM_package/datasets/isaac_eval/myvideo -p use_sim_time:=true
+# 終端機 B:./ros2_container.sh launch ...、drive_waypoints.py 繞一圈,跑完回終端機 A 按 Ctrl+C
+# 渲染(容器裡有 H.264 編碼器跟掛進去的中文字型),輸出在 <錄製目錄>/videos/
+./ros2_container.sh run ros2 run vslam_bringup render_vslam_video.py datasets/isaac_eval/myvideo --mode mapping
+./ros2_container.sh run ros2 run vslam_bringup render_vslam_video.py datasets/isaac_eval/myloc --mode localization \
+  --anchor-tf datasets/isaac_eval/myvideo/tf.txt     # 用建圖那次的 odom -> vslam_map,誤差才是相對地圖的絕對誤差
+```
+
+- 時間軸是模擬時間,30 fps = 機器人實際速度。俯視範圍預設是軌跡外框往外 2.5 m(`--view-margin`、`--view` 可改)。
+- 底圖是機器人的 2D 佔據地圖,用錄到的 AMCL `map -> odom` 擺;AMCL 沒定位好時加 `--map-to-odom identity`
+  (把 odom 當成地圖座標系)。這時巡航也別用 AMCL:`drive_waypoints.py -p map_frame:=odom`。
+- 容器要有 `/usr/share/fonts` 的掛載才有中文字(`ros2_container.sh up` 建的容器已經掛了;舊容器 `down` 再 `up`)。
+
 ### 驗證結果
 
 同一條路線(約 12.7–13.4 m、4 個 90° 原地轉向)的即時位姿:
@@ -104,6 +127,7 @@ camera_info。這部分**已經實際接起來跑過整圈**:內參、基線、�
 | 遮罩 | 追蹤時 ATE 4.3 cm、尺度 1.07,但 8.8 s 後在素色牆前 tracking lost,之後沒救回 |
 | 遮罩 + CLAHE(= 現在的設定,跑兩次) | 兩次都整圈沒有 lost、回到起點偵測到 loop;ATE 4.6 / 17.1 cm、Sim3 尺度 1.003 / 1.017、只用起點對齊的終點誤差 3.9 / 1.0 cm;追蹤耗時中位數約 37 ms |
 | 載入上面建的地圖只定位 | 第一幀就重定位成功、整圈沒有 lost;相對建圖座標系的絕對誤差 RMSE 5.0 cm(起點 3.7 cm、終點 3.6 cm),平面牆那段也只差 1 cm |
+| 2026-10-01 錄影那兩次(run9 建圖、run10 定位) | 建圖 ATE 17.3 cm、尺度 1.005、回到起點有迴環、終點 1.1 cm;地圖修正後平面牆那段仍有變形(關鍵幀 ATE 13.0 cm),定位時誤差中位數 2.7 cm,但在那段最大 70 cm(a6 轉角短暫 lost 一次後重定位到變形的那段) |
 
 尺度接近 1 代表內參跟基線對。實際使用建議先繞一圈建圖(回到起點觸發 loop closure)存檔,之後載入地圖定位。兩次 ATE 差很多,誤差幾乎都來自 a6 -> a5 那段正對一整面平面素色牆的路(視覺退化,
 會少估前進量),細節、試過的參數(`depth_threshold`、輪式里程計運動先驗都沒有可量測的改善)跟其他限制見

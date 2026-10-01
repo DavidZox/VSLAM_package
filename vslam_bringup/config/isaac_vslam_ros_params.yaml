@@ -50,6 +50,15 @@ run_slam:
     # 在影像時間戳查 TF 最多等多久(秒,模擬時間)。機器人端 TF 平均延遲約 3 ms、最大約 50 ms。
     tf_lookup_timeout: 0.1
 
-    # ~/tracking_image:追蹤到的特徵點畫在左影像上,有人訂閱時才發(rqt_image_view 看)
+    # ~/tracking_image:特徵點畫在原始左影像上(綠 = 對到地圖點,橘 = 沒對到,暗區 = 遮罩),有人訂閱時才發。
+    # 每 2 幀一張 = 模擬時間 30 Hz,錄成 30 fps 影片剛好是實際速度。tracking_image_preprocessed: true 改畫在
+    # CLAHE 後的灰階圖(演算法實際抽特徵的那張)
     publish_tracking_image: true
-    tracking_image_interval: 3
+    tracking_image_interval: 2
+
+    # ~/frame_points:當前影格的特徵點用雙目深度轉成 3D、再用估計的位姿放進 vslam_map(tracked = 1 是對到地圖點的),
+    # 看「影像特徵 -> 3D -> 對齊地圖」;~/map_points 全部地圖點、~/loop_edges 迴環邊,每 map_points_interval 幀發一次。
+    # 都是有人訂閱才算(RViz 或 vslam_viz_recorder.py)
+    publish_frame_points: true
+    publish_map_points: true
+    map_points_interval: 10

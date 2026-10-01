@@ -132,6 +132,8 @@ Isaac Sim 場景跟機器人端(`amr-base-dev`)都跑起來之後,在這個 repo
 
 容器用機器人端的 `amr_base` 映像、`--network host`,`ROS_DOMAIN_ID` 自動讀 `amr_base/domain_id.conf`。
 輸出 `/run_slam/robot_pose`(底盤在 `vslam_map` 的位姿)等,細節見 [`vslam_bringup/README.md`](vslam_bringup/README.md)。
+要錄「相機視角 + 特徵點」跟「俯視全域地圖」(建圖/純定位)的影片,用 `vslam_viz_recorder.py` 錄、`render_vslam_video.py`
+渲染,見同一份 README 的「錄影片」。
 
 ## 已知眉角
 
@@ -142,6 +144,8 @@ Isaac Sim 場景跟機器人端(`amr-base-dev`)都跑起來之後,在這個 repo
   **自訂 `-r/--rectify` 跟 ROS2 `-r`(remap)撞名導致節點當掉**(已拿掉短參數 `-r`)
 - `ros2 launch ... --show-args` 只印參數、不會啟動節點,驗證一定要真的啟動
 - `colcon.pkg` 的逐套件 cmake 參數在此 colcon 版本不生效,改在 `colcon_build.sh` 一次給全部旗標
+- `stella_vslam` fork 改了兩處:找 FBoW 時排除自己的 install prefix(否則改過標頭後增量編譯會吃到舊標頭)、
+  `frame_publisher` 多帶出當前影格特徵點的雙目深度(`get_depths()`,給 `~/frame_points` 用)
 - Isaac Sim 機器人:相機看得到機器人自己的雙手,**一定要用本體遮罩**(不遮的話 VSLAM 以為相機沒在動);
   場景牆面是低對比素色材質,**要開 CLAHE**(`clahe_clip_limit`)才抓得到特徵;影像 2.7 MB,訂閱要 RELIABLE
   (BEST_EFFORT 在預設 208 KB socket buffer 下幾乎收不到)。見 [`docs/isaac_sim_integration.md`](docs/isaac_sim_integration.md)

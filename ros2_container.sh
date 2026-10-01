@@ -55,12 +55,14 @@ up() {
     if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
         gpu_args=(--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all)
     fi
+    # 主機字型唯讀掛進來:映像裡沒有中文字型,render_vslam_video.py 的中文標註、RViz 的中文字要用
     docker run -d --name "$CONTAINER" --hostname "$CONTAINER" \
         --network host --ipc host "${gpu_args[@]}" \
         -e DISPLAY="${DISPLAY:-:0}" -e TZ=Asia/Taipei \
         -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
         -e CYCLONEDDS_URI="file://$WS/vslam_bringup/config/cyclonedds.xml" \
         -v "$ROOT:$WS" -v /tmp/.X11-unix:/tmp/.X11-unix -v /etc/localtime:/etc/localtime:ro \
+        -v /usr/share/fonts:/usr/local/share/fonts/host:ro \
         -w "$WS" "$IMAGE" sleep infinity >/dev/null
     echo "已建立容器 $CONTAINER(映像 $IMAGE,repo 掛在 $WS)"
 }

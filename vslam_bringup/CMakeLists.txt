@@ -19,6 +19,8 @@ install(PROGRAMS
   scripts/drive_waypoints.py
   scripts/vslam_trajectory_recorder.py
   scripts/evaluate_trajectory.py
+  scripts/vslam_viz_recorder.py
+  scripts/render_vslam_video.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
